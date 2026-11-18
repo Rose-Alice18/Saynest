@@ -118,10 +118,23 @@ async function generateJson(prompt: string): Promise<any | null> {
   return null;
 }
 
+// Many recording links the Dictionary API returns now point at deleted files
+// (404). Only keep links that actually load, so the app goes straight to the
+// browser voice instead of trying a dead file first.
+async function audioExists(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(1500) });
+    return res.ok && (res.headers.get('content-type') || '').startsWith('audio/');
+  } catch {
+    return false;
+  }
+}
+
 // Fetch authentic audio from Free Dictionary API if available with timeout
 async function fetchDictionaryAudio(word: string): Promise<{
   ukAudio?: string;
   usAudio?: string;
+  auAudio?: string;
   phonetics?: any[];
   rawDefinitions?: any[];
 }> {
@@ -134,25 +147,25 @@ async function fetchDictionaryAudio(word: string): Promise<{
     if (!Array.isArray(data) || data.length === 0) return {};
     
     const entry = data[0];
-    let ukAudio: string | undefined;
-    let usAudio: string | undefined;
-    
-    if (Array.isArray(entry.phonetics)) {
-      for (const p of entry.phonetics) {
-        if (!p.audio) continue;
-        if (p.audio.includes('-uk') || p.audio.includes('uk.') || p.audio.includes('/uk/')) {
-          if (!ukAudio) ukAudio = p.audio;
-        } else if (p.audio.includes('-us') || p.audio.includes('us.') || p.audio.includes('/us/')) {
-          if (!usAudio) usAudio = p.audio;
-        } else if (!usAudio) {
-          usAudio = p.audio;
-        }
-      }
+
+    // Recording files are named by accent, e.g. hello-uk.mp3, run-au.mp3.
+    // Match the tag exactly so an Australian file is never labelled American.
+    const byAccent: Record<'uk' | 'us' | 'au', string | undefined> = { uk: undefined, us: undefined, au: undefined };
+    for (const p of entry.phonetics || []) {
+      const tag = p.audio?.match(/-(uk|us|au)\.mp3$/i)?.[1]?.toLowerCase() as 'uk' | 'us' | 'au' | undefined;
+      if (tag && !byAccent[tag]) byAccent[tag] = p.audio;
     }
-    
+    const [ukAudio, usAudio, auAudio] = await Promise.all(
+      (['uk', 'us', 'au'] as const).map(async (tag) => {
+        const url = byAccent[tag];
+        return url && (await audioExists(url)) ? url : undefined;
+      })
+    );
+
     return {
       ukAudio,
       usAudio,
+      auAudio,
       phonetics: entry.phonetics || [],
       rawDefinitions: entry.meanings || []
     };
@@ -234,6 +247,8 @@ Return ONLY valid JSON with this exact schema:
               acc.audioUrl = dictData.ukAudio;
             } else if (acc.accent === 'American' && dictData.usAudio) {
               acc.audioUrl = dictData.usAudio;
+            } else if (acc.accent === 'Australian' && dictData.auAudio) {
+              acc.audioUrl = dictData.auAudio;
             }
           }
         }
@@ -279,6 +294,7 @@ Return ONLY valid JSON with this exact schema:
         {
           accent: 'Australian',
           ipa: primaryPhonetic,
+          audioUrl: dictData.auAudio,
           flag: '🇦🇺',
           langCode: 'en-AU'
         }

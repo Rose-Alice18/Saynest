@@ -73,23 +73,35 @@ export async function speakWord(
 ): Promise<void> {
   stopAllAudio();
 
-  // If there's an authentic audio URL from Cambridge/Oxford dictionary and accent matches British or American
+  // Prefer an authentic dictionary recording when we have one for this accent
   if (audioFallbackUrl && audioFallbackUrl.startsWith('http')) {
+    const audio = new Audio(audioFallbackUrl);
+    currentAudioElement = audio;
+    audio.playbackRate = rate;
+
+    // A broken link triggers both the 'error' event and a rejected play()
+    // promise. Fall back to the synthesised voice only once, otherwise the
+    // word is spoken twice.
+    let fellBack = false;
+    const fallBack = () => {
+      if (fellBack || currentAudioElement !== audio) return;
+      fellBack = true;
+      currentAudioElement = null;
+      speakWithSynthesis(text, accent, rate, onStart, onEnd);
+    };
+
+    if (onStart) audio.onplay = () => onStart();
+    audio.onended = () => {
+      currentAudioElement = null;
+      if (onEnd) onEnd();
+    };
+    audio.onerror = fallBack;
     try {
-      const audio = new Audio(audioFallbackUrl);
-      currentAudioElement = audio;
-      audio.playbackRate = rate;
-      if (onStart) audio.onplay = () => onStart();
-      if (onEnd) audio.onended = () => { currentAudioElement = null; onEnd(); };
-      audio.onerror = () => {
-        // Fallback to speech synthesis if audio link fails
-        speakWithSynthesis(text, accent, rate, onStart, onEnd);
-      };
       await audio.play();
-      return;
     } catch {
-      // Fallback
+      fallBack();
     }
+    return;
   }
 
   speakWithSynthesis(text, accent, rate, onStart, onEnd);

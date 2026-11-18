@@ -59,24 +59,21 @@ export async function lookupWord(query: string): Promise<WordEntry> {
       if (Array.isArray(dictData) && dictData.length > 0) {
         const item = dictData[0];
         
-        let ukAudio: string | undefined;
-        let usAudio: string | undefined;
+        // Recording files are named by accent, e.g. hello-uk.mp3, run-au.mp3.
+        // Match the tag exactly so an Australian file is never labelled American.
+        const byAccent: Record<string, string | undefined> = {};
         let primaryIpa = item.phonetic || '';
 
         if (Array.isArray(item.phonetics)) {
           for (const p of item.phonetics) {
             if (!primaryIpa && p.text) primaryIpa = p.text;
-            if (p.audio) {
-              if (p.audio.includes('-uk') || p.audio.includes('uk.') || p.audio.includes('/uk/')) {
-                if (!ukAudio) ukAudio = p.audio;
-              } else if (p.audio.includes('-us') || p.audio.includes('us.') || p.audio.includes('/us/')) {
-                if (!usAudio) usAudio = p.audio;
-              } else if (!usAudio) {
-                usAudio = p.audio;
-              }
-            }
+            const tag = p.audio?.match(/-(uk|us|au)\.mp3$/i)?.[1]?.toLowerCase();
+            if (tag && !byAccent[tag]) byAccent[tag] = p.audio;
           }
         }
+        const ukAudio = byAccent.uk;
+        const usAudio = byAccent.us;
+        const auAudio = byAccent.au;
 
         const accents: AccentInfo[] = [
           {
@@ -96,6 +93,7 @@ export async function lookupWord(query: string): Promise<WordEntry> {
           {
             accent: 'Australian',
             ipa: primaryIpa || `/${cleanWord}/`,
+            audioUrl: auAudio,
             flag: '🇦🇺',
             langCode: 'en-AU'
           }
