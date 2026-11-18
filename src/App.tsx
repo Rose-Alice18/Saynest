@@ -333,10 +333,13 @@ export default function App() {
 
   // Handler: Return to previous context from Word Detail Screen
   const handleBackFromWordDetail = () => {
-    setActiveWordDetail(null);
     if (navigationSource.fromScanPage) {
+      setActiveWordDetail(null);
       setIsScanPageOpen(true);
+    } else if (canGoBack) {
+      window.history.back();
     } else {
+      setActiveWordDetail(null);
       if (navigationSource.tab) {
         setCurrentTab(navigationSource.tab);
       }
@@ -417,6 +420,110 @@ export default function App() {
     showToast(`Saved "${w}" to ${targetCol?.title || 'Pride and Prejudice'}`);
   };
 
+  // ---------------------------------------------------------------------------
+  // Browser history
+  //
+  // SayNest is one page, so without this the browser's Back button leaves the
+  // app entirely. Each screen change (tab, word, commute mode) is pushed as a
+  // history entry; Back/Forward restore it, and a refresh reopens the same
+  // screen. Modals aren't history entries, but Back closes any that are open.
+  // ---------------------------------------------------------------------------
+  type NavSnapshot = {
+    saynest: true;
+    idx: number;
+    tab: MainTab;
+    commute: boolean;
+    collectionId: string;
+    word: WordEntry | null;
+  };
+  const navKeyOf = (tab: MainTab, commute: boolean, wordId: string | undefined, collectionId: string) =>
+    `${tab}|${commute}|${wordId ?? ''}|${collectionId}`;
+  const navKey = navKeyOf(currentTab, isCommuteMode, activeWordDetail?.id, selectedCollectionId);
+
+  const navIdxRef = useRef(0);
+  const lastNavKeyRef = useRef<string | null>(null);
+  const restoringNavRef = useRef(false);
+  const [canGoBack, setCanGoBack] = useState(false);
+
+  const applySnapshot = (s: NavSnapshot) => {
+    const key = navKeyOf(s.tab, s.commute, s.word?.id, s.collectionId);
+    // The state changes below shouldn't be pushed as a new history entry. Only
+    // flag it if the screen will actually change, or the flag would linger and
+    // swallow the next real navigation.
+    const currentKey = lastNavKeyRef.current ?? navKey;
+    if (key !== currentKey) restoringNavRef.current = true;
+    lastNavKeyRef.current = key;
+    navIdxRef.current = s.idx;
+    setCanGoBack(s.idx > 0);
+    setCurrentTab(s.tab);
+    setIsCommuteMode(s.commute);
+    setSelectedCollectionId(s.collectionId);
+    // Prefer the latest copy of the word (AI details may have arrived since)
+    const fresh = s.word && [...searchHistory, ...words].find((w) => w.id === s.word!.id);
+    setActiveWordDetail(fresh || s.word);
+  };
+
+  useEffect(() => {
+    const snapshot = (idx: number): NavSnapshot => ({
+      saynest: true,
+      idx,
+      tab: currentTab,
+      commute: isCommuteMode,
+      collectionId: selectedCollectionId,
+      word: activeWordDetail,
+    });
+
+    // First render: reopen the screen from before a refresh, or record this one
+    if (lastNavKeyRef.current === null) {
+      const existing = window.history.state as NavSnapshot | null;
+      if (existing?.saynest) applySnapshot(existing);
+      else window.history.replaceState(snapshot(0), '');
+      lastNavKeyRef.current ??= navKey;
+      return;
+    }
+    if (restoringNavRef.current) {
+      restoringNavRef.current = false;
+      return;
+    }
+    if (navKey === lastNavKeyRef.current) {
+      // Same screen, updated content (e.g. AI details arrived): keep the entry fresh
+      window.history.replaceState(snapshot(navIdxRef.current), '');
+      return;
+    }
+    navIdxRef.current += 1;
+    window.history.pushState(snapshot(navIdxRef.current), '');
+    lastNavKeyRef.current = navKey;
+    setCanGoBack(true);
+  }, [navKey, activeWordDetail]);
+
+  useEffect(() => {
+    const onPopState = (e: PopStateEvent) => {
+      const s = e.state as NavSnapshot | null;
+      if (!s?.saynest) return;
+      // Close anything open on top of the screen
+      setSaveModalWord(null);
+      setPracticeModalWord(null);
+      setIsScanPageOpen(false);
+      setIsAddQuoteOpen(false);
+      setIsQuickAddOpen(false);
+      setIsBookSearchOpen(false);
+      // Stop a lookup that's still loading from opening its word afterwards
+      lookupSeq.current++;
+      setIsLoadingLookup(false);
+      setIsEnhancingLookup(false);
+      applySnapshot(s);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [words, searchHistory]);
+
+  // In-app Back buttons step back through history when there is somewhere to
+  // go, so they behave the same as the browser's Back button
+  const goBack = (fallback: () => void) => {
+    if (canGoBack) window.history.back();
+    else fallback();
+  };
+
   // Count items due for review
   const reviewDueCount = words.filter((w) => w.reviewStatus?.dueForReview !== false).length;
 
@@ -440,12 +547,25 @@ export default function App() {
 
       {/* Main Fluid Responsive Container */}
       <main className="flex-1 w-full bg-[#FFFDF7] flex flex-col">
+        {/* Small Back link (the word and commute screens have their own) */}
+        {canGoBack && !activeWordDetail && !isCommuteMode && (
+          <div className="max-w-5xl mx-auto w-full px-4 sm:px-6 pt-3">
+            <button
+              type="button"
+              onClick={() => window.history.back()}
+              className="inline-flex items-center gap-1 py-1 px-2 -ml-2 rounded-lg text-xs font-semibold text-stone-500 hover:text-stone-900 hover:bg-stone-100 transition-colors"
+            >
+              <span aria-hidden="true">←</span> Back
+            </button>
+          </div>
+        )}
+
         {/* Active Screen View */}
         {isCommuteMode ? (
           <div className="flex-1 max-w-2xl mx-auto w-full px-4 sm:px-6 py-4 sm:py-6">
             <CommuteScreen
               words={words}
-              onBack={() => setIsCommuteMode(false)}
+              onBack={() => goBack(() => setIsCommuteMode(false))}
             />
           </div>
         ) : activeWordDetail ? (
