@@ -1,11 +1,28 @@
 import React, { useState } from 'react';
-import { WordEntry } from '../types';
-import { X, Search, Bookmark, Sparkles, BookOpen, FileText, Check, ArrowRight, Layers, CheckSquare, Square } from 'lucide-react';
+import { X, Search, Bookmark, Sparkles, BookOpen, FileText, Check, CheckSquare, Square, Loader2 } from 'lucide-react';
+
+type ExtractMeta = { definition?: string; partOfSpeech?: string; chapter?: string; page?: string };
 
 interface ScanPageModalProps {
+  /** Which tab to open on: the sample page, or pasting your own text */
+  initialTab?: 'scan' | 'paste';
   onClose: () => void;
   onDefineWord: (word: string) => void;
-  onSaveExtractedWord: (word: string, context: string, type?: 'word' | 'phrase' | 'transition') => void;
+  onSaveExtractedWord: (
+    word: string,
+    context: string,
+    type?: 'word' | 'phrase' | 'transition',
+    meta?: ExtractMeta
+  ) => void;
+}
+
+// What /api/scan returns for each word it picks out of pasted text
+interface ExtractedWord {
+  word: string;
+  partOfSpeech?: string;
+  briefMeaning?: string;
+  contextSentence?: string;
+  cefr?: string;
 }
 
 export interface PageDiscovery {
@@ -69,11 +86,50 @@ export const PAGE_DISCOVERIES: PageDiscovery[] = [
 ];
 
 export const ScanPageModal: React.FC<ScanPageModalProps> = ({
+  initialTab = 'scan',
   onClose,
   onDefineWord,
   onSaveExtractedWord,
 }) => {
-  const [activeTab, setActiveTab] = useState<'scan' | 'paste'>('scan');
+  const [activeTab, setActiveTab] = useState<'scan' | 'paste'>(initialTab);
+
+  // Paste tab: words the AI picked out, and which have been saved
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extracted, setExtracted] = useState<ExtractedWord[] | null>(null);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [savedExtracted, setSavedExtracted] = useState<string[]>([]);
+
+  const handleExtract = async () => {
+    if (!pastedText.trim()) return;
+    setIsExtracting(true);
+    setExtractError(null);
+    setExtracted(null);
+    setSavedExtracted([]);
+    try {
+      const res = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: pastedText }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const items: ExtractedWord[] = (data.extractedWords || []).filter((w: ExtractedWord) => w?.word);
+      setExtracted(items);
+      if (!items.length) setExtractError("We couldn't find words worth learning in that text. Try a longer passage.");
+    } catch {
+      setExtractError("Couldn't reach SayNest to read that text. Check your connection and try again.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const saveExtracted = (item: ExtractedWord) => {
+    onSaveExtractedWord(item.word, item.contextSentence || '', item.word.includes(' ') ? 'phrase' : 'word', {
+      definition: item.briefMeaning,
+      partOfSpeech: item.partOfSpeech,
+    });
+    setSavedExtracted((prev) => [...prev, item.word]);
+  };
   const [selectedWord, setSelectedWord] = useState('in consequence');
   const [selectedContext, setSelectedContext] = useState(
     "... who was, in consequence of his being her sister's partner, to admire."
@@ -110,16 +166,19 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
     }
   };
 
+  // The sample page is page 27, chapter 3, so its words carry that location
+  const samplePageMeta: ExtractMeta = { chapter: '3', page: '27' };
+
   const handleSaveCurrent = (type: 'word' | 'phrase' | 'transition' = 'word') => {
     if (isSelectAll) {
       // Batch save all selected
       PAGE_DISCOVERIES.forEach(d => {
-        onSaveExtractedWord(d.word, d.context, d.type);
+        onSaveExtractedWord(d.word, d.context, d.type, samplePageMeta);
       });
       onClose();
     } else {
       const match = PAGE_DISCOVERIES.find(d => d.word.toLowerCase() === selectedWord.toLowerCase());
-      onSaveExtractedWord(selectedWord, selectedContext, type || match?.type || 'word');
+      onSaveExtractedWord(selectedWord, selectedContext, type || match?.type || 'word', samplePageMeta);
       onClose();
     }
   };
@@ -133,11 +192,13 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200/70 bg-[#FFFDF7]">
           <div className="flex items-center gap-2">
-            <h3 className="font-bold text-stone-900 text-lg font-serif-display">Scan & Discover</h3>
+            <h3 className="font-bold text-stone-900 text-lg font-serif-display">
+              {activeTab === 'paste' ? 'Find words in text' : 'Scan & Discover'}
+            </h3>
           </div>
           <div className="flex items-center gap-2">
-            {/* Functional Select All Button */}
-            <button
+            {/* Select All applies to the sample page only */}
+            {activeTab === 'scan' && <button
               onClick={handleToggleSelectAll}
               className={`text-xs font-bold px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
                 isSelectAll 
@@ -156,9 +217,10 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
                   <span>Select all ({PAGE_DISCOVERIES.length})</span>
                 </>
               )}
-            </button>
+            </button>}
             <button
               onClick={onClose}
+              aria-label="Close"
               className="w-8 h-8 rounded-full flex items-center justify-center text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition-colors"
             >
               <X className="w-5 h-5" />
@@ -175,7 +237,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
             }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
-            <span>Scan Book Page</span>
+            <span>Sample page</span>
           </button>
           <button
             onClick={() => setActiveTab('paste')}
@@ -184,7 +246,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
             }`}
           >
             <FileText className="w-3.5 h-3.5" />
-            <span>Paste Custom Text</span>
+            <span>Paste your text</span>
           </button>
         </div>
 
@@ -192,6 +254,12 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
         <div className="p-6 overflow-y-auto space-y-5">
           {activeTab === 'scan' && (
             <>
+              {/* Be upfront that this is a demo page, not a camera scan */}
+              <div className="text-[11px] text-stone-600 bg-amber-50 border border-amber-200/80 rounded-xl p-2.5">
+                This is a <strong>sample page</strong> to show how scanning works: tap a highlighted word.
+                To use your own reading, choose <strong>Paste your text</strong>.
+              </div>
+
               {/* Page Header */}
               <div className="flex items-center justify-between text-xs text-stone-500 italic pb-2 border-b border-stone-100">
                 <span className="font-serif">{bookPages[activeThumbnail].title}</span>
@@ -335,28 +403,77 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
 
               <div className="flex justify-end">
                 <button
-                  onClick={() => {
-                    const words = pastedText
-                      .replace(/[^\w\s-]/g, '')
-                      .split(/\s+/)
-                      .filter(w => w.length > 5);
-                    if (words.length > 0) {
-                      const first = words[0];
-                      handleWordClick(first, pastedText.slice(0, 120) + '...');
-                      setActiveTab('scan');
-                    }
-                  }}
-                  className="py-2.5 px-4 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold flex items-center gap-2"
+                  onClick={handleExtract}
+                  disabled={isExtracting || !pastedText.trim()}
+                  className="py-2.5 px-4 bg-stone-900 hover:bg-stone-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2"
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-[#FFE042]" />
-                  <span>Extract & Scan Vocabulary</span>
+                  {isExtracting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FFE042]" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-[#FFE042]" />
+                  )}
+                  <span>{isExtracting ? 'Reading your text…' : 'Find words to learn'}</span>
                 </button>
               </div>
+
+              {extractError && (
+                <div role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900">
+                  {extractError}
+                </div>
+              )}
+
+              {/* Words picked out of the pasted text */}
+              {extracted && extracted.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wider">
+                    Words worth learning ({extracted.length})
+                  </div>
+                  {extracted.map((item) => {
+                    const isSaved = savedExtracted.includes(item.word);
+                    return (
+                      <div key={item.word} className="p-3 bg-white rounded-2xl border border-stone-200 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-baseline gap-2 min-w-0">
+                            <span className="font-bold font-serif-display text-stone-950 truncate">{item.word}</span>
+                            {item.partOfSpeech && (
+                              <span className="text-[11px] text-stone-500 capitalize">{item.partOfSpeech}</span>
+                            )}
+                            {item.cefr && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-stone-100 text-stone-600">{item.cefr}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => onDefineWord(item.word)}
+                              className="py-1 px-2.5 bg-stone-100 hover:bg-stone-200 rounded-lg text-[11px] font-bold text-stone-800"
+                            >
+                              Define
+                            </button>
+                            <button
+                              onClick={() => saveExtracted(item)}
+                              disabled={isSaved}
+                              className={`py-1 px-2.5 rounded-lg text-[11px] font-bold flex items-center gap-1 ${
+                                isSaved ? 'bg-emerald-50 text-emerald-800' : 'bg-[#FFE042] hover:bg-[#F7D836] text-stone-900'
+                              }`}
+                            >
+                              {isSaved ? <><Check className="w-3 h-3" /> Saved</> : <><Bookmark className="w-3 h-3" /> Save</>}
+                            </button>
+                          </div>
+                        </div>
+                        {item.briefMeaning && <p className="text-xs text-stone-700">{item.briefMeaning}</p>}
+                        {item.contextSentence && (
+                          <p className="text-[11px] text-stone-500 italic font-serif">"{item.contextSentence}"</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
-          {/* Extracted Text Preview Section */}
-          <div className="bg-[#FAF6EC] p-4 rounded-2xl border border-stone-200/80">
+          {/* Extracted Text Preview Section (sample page) */}
+          {activeTab === 'scan' && <div className="bg-[#FAF6EC] p-4 rounded-2xl border border-stone-200/80">
             <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wider mb-1 flex items-center justify-between">
               <span>Extracted context & selection</span>
               {isSelectAll && (
@@ -368,11 +485,11 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
                 ? 'All 6 key discoveries on page 27: "obliged", "scarcity", "in consequence", "unassuming", "sensible", "animated"'
                 : selectedContext}
             </div>
-          </div>
+          </div>}
         </div>
 
-        {/* Bottom Primary CTA */}
-        <div className="p-4 bg-[#FFFDF7] border-t border-stone-200/70">
+        {/* Bottom Primary CTA (sample page; pasted words have their own Save buttons) */}
+        {activeTab === 'scan' && <div className="p-4 bg-[#FFFDF7] border-t border-stone-200/70">
           <button
             onClick={() => handleSaveCurrent(selectedWord.includes(' ') ? 'transition' : 'word')}
             className="w-full py-3.5 px-4 bg-[#FFE042] hover:bg-[#F7D836] text-stone-900 font-bold text-sm rounded-2xl shadow-sm transition-transform active:scale-[0.98] flex items-center justify-center gap-2"
@@ -384,7 +501,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
                 : `Save selected ("${selectedWord}")`}
             </span>
           </button>
-        </div>
+        </div>}
       </div>
     </div>
   );

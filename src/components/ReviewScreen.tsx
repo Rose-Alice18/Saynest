@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { WordEntry } from '../types';
+import { dueWords, estimateMinutes, ReviewRating } from '../utils/review';
 import { 
   Volume2, Star, Headphones, Eye, RotateCcw, Check, 
   Sparkles, ArrowRight, ArrowLeft, Settings, Filter, Sliders, 
@@ -12,6 +13,8 @@ import { ExportModal } from './ExportModal';
 
 interface ReviewScreenProps {
   words: WordEntry[];
+  /** Record a rating so the word's next review date moves */
+  onRateWord: (wordId: string, rating: ReviewRating) => void;
   onOpenCommuteMode: () => void;
   onFinishSession: () => void;
   onBack?: () => void;
@@ -21,6 +24,7 @@ export type CustomPracticeMode = 'flashcard' | 'recall' | 'listening' | 'quiz';
 
 export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   words,
+  onRateWord,
   onOpenCommuteMode,
   onFinishSession,
   onBack
@@ -98,11 +102,16 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
 
       return filtered.slice(0, customDeckLimit);
     }
-    // 'Today' mode: items due today (first 8 entries)
-    return words.slice(0, 8);
+    // 'Today' mode: the words that are actually due
+    return dueWords(words);
   };
 
-  const reviewDeck = getDeck();
+  // The deck is fixed for a session. Rebuilding it on every render reshuffled
+  // custom decks mid-card (revealing showed another card's answer), and rated
+  // words would drop out of today's deck while it was being worked through.
+  // sessionKey changes whenever a new session starts.
+  const [sessionKey, setSessionKey] = useState(0);
+  const reviewDeck = useMemo(getDeck, [activeTab, customFilter, customDeckLimit, sortOrder, sessionKey]);
   const currentCard = reviewDeck[currentIndex] || reviewDeck[0];
 
   // Setup Quiz Options whenever card changes
@@ -110,10 +119,12 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
     if (currentCard && practiceMode === 'quiz') {
       const correctDef = currentCard.meanings[0]?.definitions[0]?.definition || '';
       const otherWords = words.filter(w => w.id !== currentCard.id);
+      // Random wrong answers, so the same three don't appear on every card
       const wrongDefs = otherWords
         .map(w => w.meanings[0]?.definitions[0]?.definition)
-        .filter(Boolean)
-        .slice(0, 3) as string[];
+        .filter((d): d is string => !!d && d !== correctDef)
+        .sort(() => 0.5 - Math.random())
+        .slice(0, 3);
       
       const mixed = [correctDef, ...wrongDefs].sort(() => 0.5 - Math.random());
       setQuizOptions(mixed);
@@ -218,8 +229,10 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   ]);
 
   const handleRate = (rating: 'again' | 'almost' | 'gotIt') => {
+    if (!currentCard) return;
     setScoreCounts(prev => ({ ...prev, [rating]: prev[rating] + 1 }));
-    
+    onRateWord(currentCard.id, rating);
+
     if (currentIndex + 1 < reviewDeck.length) {
       setCurrentIndex(currentIndex + 1);
       setIsAnswerRevealed(false);
@@ -230,6 +243,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   };
 
   const handleRestart = () => {
+    setSessionKey((k) => k + 1); // rebuild the deck from the latest schedule
     setCurrentIndex(0);
     setIsAnswerRevealed(false);
     setShowHint(false);
@@ -645,6 +659,27 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
+        ) : reviewDeck.length === 0 ? (
+          /* Nothing due (or nothing saved yet) */
+          <div className="my-6 text-center p-8 bg-[#FAF6EC] rounded-3xl border border-stone-200 space-y-3">
+            <SayNestBird variant="flag" size={80} />
+            <h2 className="text-2xl font-bold font-serif-display text-stone-950">
+              {words.length === 0 ? 'Nothing to review yet' : 'All caught up!'}
+            </h2>
+            <p className="text-xs text-stone-600 max-w-xs mx-auto leading-relaxed">
+              {words.length === 0
+                ? 'Save a few words and they will show up here for review.'
+                : 'No words are due right now. Each word comes back when it is time to refresh it.'}
+            </p>
+            {words.length > 0 && (
+              <button
+                onClick={() => handleTabChange('Custom')}
+                className="py-2.5 px-4 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold inline-flex items-center gap-2"
+              >
+                Practise anyway <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         ) : (
           <>
             {/* Session Progress Card matching mockup */}
@@ -665,7 +700,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                     )}
                   </div>
                   <div className="text-xs text-stone-700 font-medium">
-                    {reviewDeck.length} discoveries · ~ {Math.ceil(reviewDeck.length * 0.75)} minutes
+                    {reviewDeck.length} {reviewDeck.length === 1 ? 'word' : 'words'} · ~ {estimateMinutes(reviewDeck.length)} min
                   </div>
                   {/* Progress bar */}
                   <div className="w-full max-w-[200px] bg-stone-900/15 h-2 rounded-full mt-2 overflow-hidden flex items-center">
@@ -697,7 +732,8 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                     Session Complete!
                   </h2>
                   <p className="text-xs text-stone-600 max-w-xs mx-auto">
-                    You reviewed {reviewDeck.length} discoveries in this session. Memory traces strengthened.
+                    You reviewed {reviewDeck.length} {reviewDeck.length === 1 ? 'word' : 'words'}. Words you knew will come
+                    back in a few days; ones marked "Again" come back soon.
                   </p>
                   <div className="grid grid-cols-3 gap-2 pt-2">
                     <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl">

@@ -439,6 +439,11 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
                 "{def.example}"
               </div>
             ))}
+            {!word.meanings.some(m => m.definitions.some(d => d.example)) && (
+              <div className="p-5 text-center text-xs text-stone-500 bg-white rounded-xl border border-dashed border-stone-300">
+                {isEnhancing ? 'Example sentences are on their way…' : 'No example sentences for this one yet.'}
+              </div>
+            )}
           </div>
         )}
 
@@ -447,17 +452,14 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
             <div className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1">
               Related synonyms, variants & rhetorical expressions
             </div>
-            {((word.relatedExpressions && word.relatedExpressions.length > 0)
-              ? word.relatedExpressions
-              : [
-                  { phrase: `imitate`, relation: 'Direct synonym', type: 'verb' },
-                  { phrase: `simulate`, relation: 'Formal synonym', type: 'verb' },
-                  { phrase: `mirror`, relation: 'Figurative connector', type: 'verb' },
-                  { phrase: `parody`, relation: 'Comedic variant', type: 'noun' },
-                  { phrase: `emulate`, relation: 'Aspirational imitation', type: 'verb' },
-                  { phrase: `in a similar vein`, relation: 'Transition connector', type: 'transition' }
-                ]
-            ).map((rel, i) => (
+            {/* Previously this fell back to a fixed list of synonyms for "mimic",
+                which showed up as "related" to every word without its own list */}
+            {!word.relatedExpressions?.length && (
+              <div className="p-5 text-center text-xs text-stone-500 bg-white rounded-xl border border-dashed border-stone-300">
+                {isEnhancing ? 'Finding related words and expressions…' : 'No related expressions for this one yet.'}
+              </div>
+            )}
+            {(word.relatedExpressions || []).map((rel, i) => (
               <div
                 key={i}
                 onClick={() => onSearchLookup?.(rel.phrase)}
@@ -513,10 +515,14 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
       <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md p-4 bg-[#FFFDF7]/95 backdrop-blur-md border-t border-stone-200/80 z-30 flex items-center gap-3">
         <button
           onClick={() => onOpenSaveModal(word)}
-          className="flex-1 py-3 px-4 bg-stone-900 hover:bg-stone-800 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-[0.98]"
+          className={`flex-1 py-3 px-4 font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-[0.98] ${
+            isSaved
+              ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200'
+              : 'bg-stone-900 hover:bg-stone-800 text-white'
+          }`}
         >
-          <Bookmark className="w-4 h-4 fill-white" />
-          <span>Save to library</span>
+          {isSaved ? <Check className="w-4 h-4" /> : <Bookmark className="w-4 h-4 fill-white" />}
+          <span>{isSaved ? 'Saved · Edit' : 'Save to library'}</span>
         </button>
 
         <button

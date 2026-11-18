@@ -414,23 +414,23 @@ Return ONLY valid JSON:
     }
   }
 
-  // Fallback extraction
-  const tokens = text
-    .replace(/[^\w\s-]/g, '')
-    .split(/\s+/)
-    .filter(t => t.length > 6)
-    .slice(0, 5);
-
-  const unique = Array.from(new Set(tokens));
-  return res.json({
-    extractedWords: unique.map(w => ({
-      word: w.toLowerCase(),
-      partOfSpeech: 'vocabulary',
-      briefMeaning: `Important word identified in text passage.`,
-      contextSentence: text.slice(0, 100) + '...',
-      cefr: 'B2'
-    }))
-  });
+  // Fallback when no AI is available: longer words, skipping names, each with
+  // the sentence it appears in. No made-up meaning; the app offers "Define".
+  const sentences = text.split(/(?<=[.!?;])\s+/);
+  const seen = new Set<string>();
+  const picks: { word: string; contextSentence: string }[] = [];
+  for (const sentence of sentences) {
+    for (const raw of sentence.split(/\s+/)) {
+      const token = raw.replace(/[^A-Za-z'-]/g, '');
+      const isLikelyName = /^[A-Z]/.test(token) && !sentence.trim().startsWith(token);
+      const lower = token.toLowerCase();
+      if (token.length > 6 && !isLikelyName && !seen.has(lower)) {
+        seen.add(lower);
+        picks.push({ word: lower, contextSentence: sentence.trim() });
+      }
+    }
+  }
+  return res.json({ extractedWords: picks.slice(0, 6) });
 });
 
 // Book search & cover fetch endpoint

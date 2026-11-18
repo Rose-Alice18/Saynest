@@ -27,11 +27,16 @@ export const CommuteScreen: React.FC<CommuteScreenProps> = ({ words, onBack }) =
   const isPlayingRef = useRef(false);
   const autoPlayNextRef = useRef(autoPlayNext);
   autoPlayNextRef.current = autoPlayNext;
+  // Each run gets an id. When Next/Prev/speed restarts playback, the old run
+  // finishes "interrupted" a moment later; without this check it would mark
+  // the new run as paused while its audio kept playing.
+  const runIdRef = useRef(0);
 
-  const runSequence = async (index: number) => {
+  const runSequence = async (index: number, speed: number = speechSpeed) => {
     const item = commutePlaylist[index];
     if (!item) return;
 
+    const runId = ++runIdRef.current;
     isPlayingRef.current = true;
     setIsPlaying(true);
     const meaning = item.meanings[0]?.definitions[0]?.definition || '';
@@ -42,20 +47,23 @@ export const CommuteScreen: React.FC<CommuteScreenProps> = ({ words, onBack }) =
       meaning,
       example,
       'British',
-      speechSpeed,
+      speed,
       (status) => {
-        if (!isPlayingRef.current) return;
+        if (!isPlayingRef.current || runId !== runIdRef.current) return;
         setReadingStatus(status);
         if (status === 'meaning') setActiveBottomTab('Meaning');
         if (status === 'example') setActiveBottomTab('Example');
       }
     );
 
+    // A newer run has taken over; leave the state to it
+    if (runId !== runIdRef.current) return;
+
     // Only advance when playback completed naturally without user pausing
     if (finishedOk && isPlayingRef.current && autoPlayNextRef.current) {
       const nextIdx = (index + 1) % commutePlaylist.length;
       setCurrentIndex(nextIdx);
-      runSequence(nextIdx);
+      runSequence(nextIdx, speed);
     } else if (!finishedOk || !isPlayingRef.current) {
       isPlayingRef.current = false;
       setIsPlaying(false);
@@ -65,6 +73,7 @@ export const CommuteScreen: React.FC<CommuteScreenProps> = ({ words, onBack }) =
 
   const handleTogglePlay = () => {
     if (isPlaying) {
+      runIdRef.current++; // invalidate the current run
       isPlayingRef.current = false;
       stopAllAudio();
       setIsPlaying(false);
@@ -78,6 +87,7 @@ export const CommuteScreen: React.FC<CommuteScreenProps> = ({ words, onBack }) =
 
   const handleNext = () => {
     const wasPlaying = isPlaying;
+    runIdRef.current++;
     isPlayingRef.current = false;
     stopAllAudio();
     const nextIdx = (currentIndex + 1) % commutePlaylist.length;
@@ -92,6 +102,7 @@ export const CommuteScreen: React.FC<CommuteScreenProps> = ({ words, onBack }) =
 
   const handlePrev = () => {
     const wasPlaying = isPlaying;
+    runIdRef.current++;
     isPlayingRef.current = false;
     stopAllAudio();
     const prevIdx = (currentIndex - 1 + commutePlaylist.length) % commutePlaylist.length;
@@ -110,19 +121,36 @@ export const CommuteScreen: React.FC<CommuteScreenProps> = ({ words, onBack }) =
     setSpeechSpeed(next);
     if (isPlaying) {
       stopAllAudio();
-      runSequence(currentIndex);
+      // Pass the new speed directly; the state update hasn't applied yet
+      runSequence(currentIndex, next);
     }
   };
 
   useEffect(() => {
     return () => {
+      runIdRef.current++;
       isPlayingRef.current = false;
       stopAllAudio();
     };
   }, []);
 
   if (!currentItem) {
-    return null;
+    // No saved words yet: explain instead of showing a blank screen
+    return (
+      <div className="flex flex-col items-center justify-center text-center gap-3 py-16 px-6">
+        <SayNestBird variant="headphones" size={80} />
+        <h2 className="text-xl font-bold font-serif-display text-stone-950">Nothing to play yet</h2>
+        <p className="text-xs text-stone-600 max-w-xs leading-relaxed">
+          Commute Audio reads out the words you save. Save a few words, then come back to listen hands-free.
+        </p>
+        <button
+          onClick={onBack}
+          className="mt-2 py-2.5 px-4 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold inline-flex items-center gap-2"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Go back
+        </button>
+      </div>
+    );
   }
 
   const primaryDef = currentItem.meanings[0]?.definitions[0]?.definition || 'No definition available.';

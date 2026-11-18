@@ -7,10 +7,14 @@ import {
 import { speakWord } from '../utils/speech';
 import { SayNestBird } from './SayNestBird';
 import { ExportModal } from './ExportModal';
+import { dateGroup } from '../utils/review';
 
 interface LibraryScreenProps {
   words: WordEntry[];
   searchHistory?: WordEntry[];
+  /** Which list is showing; kept by the parent so other screens can pick it */
+  activeView: 'saved' | 'history';
+  onChangeView: (view: 'saved' | 'history') => void;
   onSelectWord: (word: WordEntry) => void;
   onToggleStar: (wordId: string) => void;
   onDeleteWord: (wordId: string) => void;
@@ -21,13 +25,14 @@ interface LibraryScreenProps {
 export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   words,
   searchHistory = [],
+  activeView,
+  onChangeView: setActiveView,
   onSelectWord,
   onToggleStar,
   onDeleteWord,
   onSaveFromHistory,
   onClearHistory
 }) => {
-  const [activeView, setActiveView] = useState<'saved' | 'history'>('history');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'All' | 'Words' | 'Phrases' | 'Transitions' | 'Quotes'>('All');
   const [activeAudioWordId, setActiveAudioWordId] = useState<string | null>(null);
@@ -88,10 +93,11 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     return timeB - timeA;
   });
 
-  // Group Saved words by Today, Yesterday, Earlier
-  const todayWords = filteredSavedWords.filter(w => w.groupDate === 'Today' || !w.groupDate);
-  const yesterdayWords = filteredSavedWords.filter(w => w.groupDate === 'Yesterday');
-  const earlierWords = filteredSavedWords.filter(w => w.groupDate === 'Earlier');
+  // Group Saved words by Today, Yesterday, Earlier, worked out from when each
+  // was added (a stored label would say "Today" forever)
+  const todayWords = filteredSavedWords.filter(w => dateGroup(w.dateAdded) === 'Today');
+  const yesterdayWords = filteredSavedWords.filter(w => dateGroup(w.dateAdded) === 'Yesterday');
+  const earlierWords = filteredSavedWords.filter(w => dateGroup(w.dateAdded) === 'Earlier');
 
   const formatSearchTime = (dateStr?: string) => {
     if (!dateStr) return 'Searched recently';

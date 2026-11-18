@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { WordEntry, Collection } from '../types';
 import { 
   Search, Mic, Camera, FileText, Quote, ChevronRight, 
-  Volume2, ArrowRight, BookOpen, Bell, Sparkles, Loader2,
-  BookMarked, Headphones
+  Volume2, ArrowRight, BookOpen, Sparkles, Loader2,
+  BookMarked, Headphones, Bookmark
 } from 'lucide-react';
 import { speakWord } from '../utils/speech';
 import { SayNestBird } from './SayNestBird';
@@ -25,6 +25,8 @@ interface HomeScreenProps {
   onOpenExpressions?: () => void;
   onOpenCommuteMode?: () => void;
   isLoadingLookup?: boolean;
+  reviewDueCount: number;
+  reviewMinutes: number;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -41,7 +43,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenBookSearch,
   onOpenExpressions,
   onOpenCommuteMode,
-  isLoadingLookup = false
+  isLoadingLookup = false,
+  reviewDueCount,
+  reviewMinutes
 }) => {
   const [searchInput, setSearchInput] = useState('');
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
@@ -79,6 +83,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   };
 
   const activeBook = collections[0];
+  // Real numbers for the "Currently reading" card
+  const activeBookSaved = activeBook ? recentWords.filter((w) => w.collectionId === activeBook.id).length : 0;
+  const activeBookProgress =
+    activeBook?.totalChapters && activeBook.currentChapter
+      ? Math.min(100, Math.round((activeBook.currentChapter / activeBook.totalChapters) * 100))
+      : null;
 
   return (
     <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-20">
@@ -94,18 +104,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="w-9 h-9 rounded-full bg-white/70 hover:bg-white flex items-center justify-center text-stone-800 transition-colors"
-                aria-label="Notifications"
-              >
-                <Bell className="w-4 h-4" />
-              </button>
-              <div className="w-9 h-9 rounded-full bg-stone-900 text-white font-bold text-xs flex items-center justify-center shadow-xs">
-                D
-              </div>
-            </div>
           </div>
 
           {/* Hero Title & Authentic Chick Illustration */}
@@ -212,15 +210,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-base sm:text-lg font-bold text-stone-900 font-serif-display">
-                  Recently discovered
+                  Recently saved
                 </h2>
-                <button
-                  onClick={onOpenLibrary}
-                  className="text-xs font-semibold text-stone-600 hover:text-stone-950 transition-colors"
-                >
-                  See all ({recentWords.length})
-                </button>
+                {recentWords.length > 0 && (
+                  <button
+                    onClick={onOpenLibrary}
+                    className="text-xs font-semibold text-stone-600 hover:text-stone-950 transition-colors"
+                  >
+                    See all ({recentWords.length})
+                  </button>
+                )}
               </div>
+
+              {recentWords.length === 0 && (
+                <div className="p-5 bg-white rounded-2xl border border-dashed border-stone-300 text-center text-xs text-stone-500">
+                  Words you save will appear here. Look one up above to get started.
+                </div>
+              )}
 
               <div className="space-y-2.5">
                 {recentWords.slice(0, 5).map((word) => (
@@ -309,13 +315,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                       </div>
                       <div className="text-xs text-stone-500 mt-0.5">{activeBook.author}</div>
                       <div className="text-xs text-stone-500 mt-2 flex items-center gap-1.5 font-medium">
-                        <span className="text-stone-400">⏱</span>
-                        <span>23 discoveries saved</span>
+                        <Bookmark className="w-3 h-3 text-stone-400" />
+                        <span>
+                          {activeBookSaved} {activeBookSaved === 1 ? 'discovery' : 'discoveries'} saved
+                        </span>
                       </div>
-                      {/* Yellow progress bar matching ref image */}
-                      <div className="w-full max-w-[220px] bg-stone-100 h-2 rounded-full mt-2.5 overflow-hidden">
-                        <div className="bg-[#FFE042] h-full rounded-full w-[45%]" />
-                      </div>
+                      {/* Reading progress, from the chapter you're on */}
+                      {activeBookProgress !== null && (
+                        <div className="mt-2.5 flex items-center gap-2">
+                          <div className="w-full max-w-[220px] bg-stone-100 h-2 rounded-full overflow-hidden">
+                            <div className="bg-[#FFE042] h-full rounded-full" style={{ width: `${activeBookProgress}%` }} />
+                          </div>
+                          <span className="text-[10px] text-stone-400 font-semibold shrink-0">
+                            Ch. {activeBook.currentChapter}/{activeBook.totalChapters}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -336,14 +351,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   <span className="text-sm sm:text-base font-bold text-stone-900">Continue learning</span>
                 </div>
                 <div className="text-xs sm:text-sm text-stone-600 font-medium leading-relaxed">
-                  7 items due for review <br />
-                  <span className="text-stone-400">⏱ ~ 4 minutes</span>
+                  {reviewDueCount > 0 ? (
+                    <>
+                      {reviewDueCount} {reviewDueCount === 1 ? 'word' : 'words'} due for review <br />
+                      <span className="text-stone-400">⏱ ~ {reviewMinutes} {reviewMinutes === 1 ? 'minute' : 'minutes'}</span>
+                    </>
+                  ) : (
+                    <>All caught up for now. Nice work!</>
+                  )}
                 </div>
                 <button
                   onClick={onOpenReview}
                   className="py-2.5 px-4 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-transform active:scale-95"
                 >
-                  <span>Continue</span>
+                  <span>{reviewDueCount > 0 ? 'Start review' : 'Practise anyway'}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>

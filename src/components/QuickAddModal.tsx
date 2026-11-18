@@ -105,8 +105,8 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               <Camera className="w-4 h-4 text-amber-800" />
             </div>
             <div>
-              <div className="text-xs font-bold text-stone-900">Scan book page</div>
-              <div className="text-[11px] text-stone-500">Read and click words directly on book pages</div>
+              <div className="text-xs font-bold text-stone-900">Try a sample page</div>
+              <div className="text-[11px] text-stone-500">See how tapping words on a book page works</div>
             </div>
           </button>
 
@@ -122,8 +122,25 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               <FileText className="w-4 h-4 text-blue-800" />
             </div>
             <div>
-              <div className="text-xs font-bold text-stone-900">Paste excerpt</div>
-              <div className="text-[11px] text-stone-500">Paste text and highlight words to learn</div>
+              <div className="text-xs font-bold text-stone-900">Paste text</div>
+              <div className="text-[11px] text-stone-500">Paste a passage and we'll pick out words to learn</div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenAddQuote();
+            }}
+            className="w-full p-3 bg-white hover:bg-stone-50 rounded-2xl border border-stone-200/90 flex items-center gap-3 text-left transition-colors"
+          >
+            <div className="w-9 h-9 rounded-xl bg-rose-100/60 flex items-center justify-center shrink-0">
+              <Quote className="w-4 h-4 text-rose-800" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-stone-900">Add a quote</div>
+              <div className="text-[11px] text-stone-500">Keep a line you loved from a book or talk</div>
             </div>
           </button>
 

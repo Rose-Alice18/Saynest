@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { WordEntry, Collection } from './types';
 import { INITIAL_WORDS, INITIAL_COLLECTIONS } from './data/initialData';
 import { lookupWord } from './utils/lookupService';
+import { dueWords, estimateMinutes, scheduleReview, ReviewRating } from './utils/review';
 import { HeaderNav } from './components/HeaderNav';
 import { BottomNav, MainTab } from './components/BottomNav';
 import { HomeScreen } from './components/HomeScreen';
@@ -99,10 +100,19 @@ export default function App() {
     // same word doesn't jump the page back to the top while it's being read.
   }, [currentTab, activeWordDetail?.id, isCommuteMode, selectedCollectionId]);
 
+  // Which Library list is showing; remembered so "See all" can open Saved
+  const [libraryView, setLibraryView] = useState<'history' | 'saved'>('history');
+
   // Modals
   const [saveModalWord, setSaveModalWord] = useState<WordEntry | null>(null);
   const [practiceModalWord, setPracticeModalWord] = useState<WordEntry | null>(null);
   const [isScanPageOpen, setIsScanPageOpen] = useState(false);
+  // "Paste text" and "Scan a page" share a modal; this picks its starting tab
+  const [scanPageTab, setScanPageTab] = useState<'scan' | 'paste'>('scan');
+  const openScanPage = (tab: 'scan' | 'paste') => {
+    setScanPageTab(tab);
+    setIsScanPageOpen(true);
+  };
   const [isAddQuoteOpen, setIsAddQuoteOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isBookSearchOpen, setIsBookSearchOpen] = useState(false);
@@ -350,22 +360,28 @@ export default function App() {
   };
 
   // Handler: Save Extracted Discovery from Book Scan or Text Paste
-  const handleSaveExtractedWord = (w: string, context: string, type?: 'word' | 'phrase' | 'transition') => {
-    const targetColId = selectedCollectionId || 'pride-and-prejudice';
-    const targetCol = collections.find(c => c.id === targetColId) || collections[0];
+  // meta carries what we know about where it came from (the sample page knows
+  // its chapter and page; AI-extracted words come with a meaning)
+  const handleSaveExtractedWord = (
+    w: string,
+    context: string,
+    type?: 'word' | 'phrase' | 'transition',
+    meta: { definition?: string; partOfSpeech?: string; chapter?: string; page?: string } = {}
+  ) => {
+    const targetCol = collections.find(c => c.id === selectedCollectionId) || collections[0];
 
     const existingWord = words.find(item => item.word.toLowerCase() === w.toLowerCase());
     if (existingWord) {
       const updated: WordEntry = {
         ...existingWord,
         collectionId: targetCol?.id,
-        chapter: existingWord.chapter || 'Chapter 3',
+        chapter: existingWord.chapter || (meta.chapter ? `Chapter ${meta.chapter}` : undefined),
         source: existingWord.source || {
           type: 'Book',
-          title: targetCol?.title || 'Pride and Prejudice',
-          author: targetCol?.author || 'Jane Austen',
-          chapter: '3',
-          page: '27'
+          title: targetCol?.title,
+          author: targetCol?.author,
+          chapter: meta.chapter,
+          page: meta.page
         }
       };
       handleSaveWord(updated);
@@ -374,12 +390,13 @@ export default function App() {
 
     const lookupMatch = PAGE_DISCOVERIES.find(d => d.word.toLowerCase() === w.toLowerCase());
     const entryType = type || lookupMatch?.type || (w.includes(' ') ? 'transition' : 'word');
+    const definition = meta.definition || lookupMatch?.definition;
 
     const newEntry: WordEntry = {
       id: `extracted-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       word: w,
       type: entryType,
-      phonetic: lookupMatch?.partOfSpeech === 'transition' ? '/ɪn ˈkɒn.sɪ.kwəns/' : '',
+      phonetic: '',
       syllables: w.replace(/\s+/g, '-'),
       accents: [
         { accent: 'British', ipa: '', flag: '🇬🇧', langCode: 'en-GB' },
@@ -387,37 +404,37 @@ export default function App() {
       ],
       meanings: [
         {
-          partOfSpeech: lookupMatch?.partOfSpeech || (w.includes(' ') ? 'transition' : 'word'),
+          partOfSpeech: meta.partOfSpeech || lookupMatch?.partOfSpeech || (w.includes(' ') ? 'phrase' : 'word'),
           definitions: [
             {
-              definition: lookupMatch?.definition || `Vocabulary item discovered from ${targetCol?.title || 'Pride and Prejudice'}.`,
+              // No definition yet: open the word to look it up
+              definition: definition || 'Open this word to look up its meaning.',
               example: context
             }
           ]
         }
       ],
       dateAdded: new Date().toISOString(),
-      groupDate: 'Today',
-      chapter: 'Chapter 3',
+      chapter: meta.chapter ? `Chapter ${meta.chapter}` : undefined,
       collectionId: targetCol?.id,
       source: {
         type: 'Book',
-        title: targetCol?.title || 'Pride and Prejudice',
-        author: targetCol?.author || 'Jane Austen',
-        chapter: '3',
-        page: '27'
+        title: targetCol?.title,
+        author: targetCol?.author,
+        chapter: meta.chapter,
+        page: meta.page
       },
       tags: [entryType, 'book-extract'],
       isStarred: false,
       reviewStatus: {
         dueForReview: true,
-        intervalDays: 1,
-        repetitions: 1
+        intervalDays: 0,
+        repetitions: 0
       }
     };
 
     handleSaveWord(newEntry);
-    showToast(`Saved "${w}" to ${targetCol?.title || 'Pride and Prejudice'}`);
+    showToast(`Saved "${w}" to ${targetCol?.title || 'your nest'}`);
   };
 
   // ---------------------------------------------------------------------------
@@ -524,8 +541,12 @@ export default function App() {
     else fallback();
   };
 
-  // Count items due for review
-  const reviewDueCount = words.filter((w) => w.reviewStatus?.dueForReview !== false).length;
+  // Review: one source of truth for what's due, used by the badges, the Home
+  // card and the Review screen, so they always agree
+  const reviewDueCount = dueWords(words).length;
+  const handleRateReview = (wordId: string, rating: ReviewRating) => {
+    setWords((prev) => prev.map((w) => (w.id === wordId ? scheduleReview(w, rating) : w)));
+  };
 
   return (
     <div className="min-h-screen bg-[#FFFDF7] flex flex-col antialiased text-stone-900">
@@ -548,7 +569,7 @@ export default function App() {
       {/* Main Fluid Responsive Container */}
       <main className="flex-1 w-full bg-[#FFFDF7] flex flex-col">
         {/* Small Back link (the word and commute screens have their own) */}
-        {canGoBack && !activeWordDetail && !isCommuteMode && (
+        {canGoBack && !activeWordDetail && !isCommuteMode && (currentTab === 'Home' || currentTab === 'Library') && (
           <div className="max-w-5xl mx-auto w-full px-4 sm:px-6 pt-3">
             <button
               type="button"
@@ -592,19 +613,25 @@ export default function App() {
                   setNavigationSource({ tab: 'Home', collectionId: selectedCollectionId });
                   setActiveWordDetail(w);
                 }}
-                onOpenScanPage={() => setIsScanPageOpen(true)}
-                onOpenPasteText={() => setIsScanPageOpen(true)}
+                onOpenScanPage={() => openScanPage('scan')}
+                onOpenPasteText={() => openScanPage('paste')}
                 onOpenAddQuote={() => setIsAddQuoteOpen(true)}
                 onOpenReview={() => setCurrentTab('Review')}
                 onOpenCollections={(colId) => {
                   if (colId) setSelectedCollectionId(colId);
                   setCurrentTab('Collections');
                 }}
-                onOpenLibrary={() => setCurrentTab('Library')}
+                onOpenLibrary={() => {
+                  // "See all" sits under the saved words, so open the Saved list
+                  setLibraryView('saved');
+                  setCurrentTab('Library');
+                }}
                 onOpenBookSearch={() => setIsBookSearchOpen(true)}
                 onOpenExpressions={() => setCurrentTab('Expressions')}
                 onOpenCommuteMode={() => setIsCommuteMode(true)}
                 isLoadingLookup={isLoadingLookup}
+                reviewDueCount={reviewDueCount}
+                reviewMinutes={estimateMinutes(reviewDueCount)}
               />
             )}
 
@@ -613,6 +640,8 @@ export default function App() {
                 <LibraryScreen
                   words={words}
                   searchHistory={searchHistory}
+                  activeView={libraryView}
+                  onChangeView={setLibraryView}
                   onSelectWord={(w) => {
                     setNavigationSource({ tab: 'Library' });
                     setActiveWordDetail(w);
@@ -639,7 +668,7 @@ export default function App() {
                   onToggleStar={handleToggleStar}
                   onCreateCollection={handleCreateCollection}
                   onOpenBookSearch={() => setIsBookSearchOpen(true)}
-                  onBack={() => setCurrentTab('Home')}
+                  onBack={() => goBack(() => setCurrentTab('Home'))}
                 />
               </div>
             )}
@@ -652,7 +681,7 @@ export default function App() {
                   setActiveWordDetail(w);
                 }}
                 onOpenSaveModal={(w) => setSaveModalWord(w)}
-                onBackToHome={() => setCurrentTab('Home')}
+                onBackToHome={() => goBack(() => setCurrentTab('Home'))}
                 onAddCustomExpression={(expr) => handleSaveWord(expr)}
               />
             )}
@@ -660,9 +689,10 @@ export default function App() {
             {currentTab === 'Review' && (
               <ReviewScreen
                 words={words}
+                onRateWord={handleRateReview}
                 onOpenCommuteMode={() => setIsCommuteMode(true)}
                 onFinishSession={() => setCurrentTab('Home')}
-                onBack={() => setCurrentTab('Home')}
+                onBack={() => goBack(() => setCurrentTab('Home'))}
               />
             )}
           </div>
@@ -702,6 +732,7 @@ export default function App() {
 
       {isScanPageOpen && (
         <ScanPageModal
+          initialTab={scanPageTab}
           onClose={() => setIsScanPageOpen(false)}
           onDefineWord={(w) => {
             setNavigationSource({ tab: currentTab, collectionId: selectedCollectionId, fromScanPage: true });
@@ -724,10 +755,14 @@ export default function App() {
         <QuickAddModal
           onClose={() => setIsQuickAddOpen(false)}
           onSearchLookup={handleSearchLookup}
-          onOpenScanPage={() => setIsScanPageOpen(true)}
-          onOpenPasteText={() => setIsScanPageOpen(true)}
+          onOpenScanPage={() => openScanPage('scan')}
+          onOpenPasteText={() => openScanPage('paste')}
           onOpenAddQuote={() => setIsAddQuoteOpen(true)}
-          onOpenExpressions={() => setCurrentTab('Expressions')}
+          onOpenExpressions={() => {
+            setActiveWordDetail(null);
+            setIsCommuteMode(false);
+            setCurrentTab('Expressions');
+          }}
         />
       )}
 

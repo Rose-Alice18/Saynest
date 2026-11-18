@@ -93,14 +93,6 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             <Headphones className="w-4 h-4 stroke-[2.5]" />
             <span>Commute Audio</span>
           </button>
-
-          {/* User Profile Avatar */}
-          <div 
-            className="w-9 h-9 rounded-full bg-stone-900 text-white font-bold text-xs flex items-center justify-center shadow-2xs select-none ml-1"
-            title="Your SayNest Profile"
-          >
-            D
-          </div>
         </div>
       </div>
     </header>
