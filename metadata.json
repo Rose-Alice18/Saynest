@@ -1,0 +1,6 @@
+{
+  "name": "SayNest",
+  "description": "Smart vocabulary nest to look up words, hear authentic pronunciations in British, American and Australian accents, explore nuanced meanings, and save to collections with commute audio review.",
+  "requestFramePermissions": ["clipboard-read", "clipboard-write", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
