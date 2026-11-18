@@ -17,10 +17,42 @@ const apiKey = process.env.GEMINI_API_KEY;
 let aiClient: GoogleGenAI | null = null;
 if (apiKey) {
   try {
-    aiClient = new GoogleGenAI({ apiKey });
+    aiClient = new GoogleGenAI({
+      apiKey,
+      // The SDK default is 5 attempts with up to 60s between them, which can
+      // leave a user waiting minutes. Fail fast instead; trying the next model
+      // in GEMINI_MODELS acts as our retry.
+      httpOptions: {
+        timeout: 10_000,
+        retryOptions: { attempts: 1 },
+      },
+    });
   } catch (e) {
     console.error('Failed to initialize GoogleGenAI client:', e);
   }
+}
+
+// Best quality first. If a model is overloaded (503) or slow, the next one is
+// tried. Flash-Lite is the backup because it stays fast when Flash is busy.
+const GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite'];
+
+// Ask Gemini for a JSON answer, trying each model in turn.
+// Returns null if Gemini is unavailable so callers can use their fallback.
+async function generateJson(prompt: string): Promise<any | null> {
+  if (!aiClient) return null;
+  for (const model of GEMINI_MODELS) {
+    try {
+      const response = await aiClient.models.generateContent({
+        model,
+        contents: prompt,
+        config: { responseMimeType: 'application/json' },
+      });
+      if (response.text) return JSON.parse(response.text);
+    } catch (err: any) {
+      console.warn(`Gemini ${model} failed (${err?.status ?? err?.name ?? 'error'}), trying next option`);
+    }
+  }
+  return null;
 }
 
 // Fetch authentic audio from Free Dictionary API if available with timeout
@@ -130,17 +162,8 @@ Return ONLY valid JSON with this exact schema:
   ]
 }`;
 
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-        }
-      });
-
-      const responseText = response.text;
-      if (responseText) {
-        const parsed = JSON.parse(responseText);
+      const parsed = await generateJson(prompt);
+      if (parsed) {
         // Attach audio files if found
         if (parsed.accents) {
           for (const acc of parsed.accents) {
@@ -271,14 +294,9 @@ Return ONLY valid JSON:
   ]
 }`;
 
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: { responseMimeType: 'application/json' }
-      });
-
-      if (response.text) {
-        return res.json(JSON.parse(response.text));
+      const parsed = await generateJson(prompt);
+      if (parsed) {
+        return res.json(parsed);
       }
     } catch (err) {
       console.warn('Scan text AI error:', err);
