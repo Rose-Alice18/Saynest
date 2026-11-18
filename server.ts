@@ -121,13 +121,39 @@ async function generateJson(prompt: string): Promise<any | null> {
 // Many recording links the Dictionary API returns now point at deleted files
 // (404). Only keep links that actually load, so the app goes straight to the
 // browser voice instead of trying a dead file first.
+//
+// Checking is slow (the host takes 1-3s to report a missing file), so:
+// - each link's result is remembered, so repeat words are instant
+// - after several missing files in a row we assume the recordings are down
+//   and stop checking for a while, rather than slowing every lookup
+const audioCheckCache = new Map<string, boolean>();
+const AUDIO_DOWN_AFTER_MISSES = 6;
+const AUDIO_RECHECK_AFTER_MS = 30 * 60_000;
+let audioMissStreak = 0;
+let audioSkipUntil = 0;
+
 async function audioExists(url: string): Promise<boolean> {
+  const cached = audioCheckCache.get(url);
+  if (cached !== undefined) return cached;
+  if (Date.now() < audioSkipUntil) return false;
+
+  let ok = false;
   try {
     const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(1500) });
-    return res.ok && (res.headers.get('content-type') || '').startsWith('audio/');
+    ok = res.ok && (res.headers.get('content-type') || '').startsWith('audio/');
+    audioCheckCache.set(url, ok);
   } catch {
-    return false;
+    // Timeout or network error: treat as missing, but don't remember it,
+    // since the file might load fine next time
   }
+
+  audioMissStreak = ok ? 0 : audioMissStreak + 1;
+  if (audioMissStreak >= AUDIO_DOWN_AFTER_MISSES) {
+    audioSkipUntil = Date.now() + AUDIO_RECHECK_AFTER_MS;
+    audioMissStreak = 0;
+    console.warn('Dictionary recordings look unavailable; using browser voices for 30 minutes');
+  }
+  return ok;
 }
 
 // Fetch authentic audio from Free Dictionary API if available with timeout
@@ -185,8 +211,12 @@ app.get('/api/lookup', async (req, res) => {
   const word = query.trim();
   const dictData = await fetchDictionaryAudio(word);
 
+  // ?quick=1 skips the AI so the app can show the dictionary result in about
+  // a second, then ask again without quick=1 for the richer AI version.
+  const quick = req.query.quick === '1';
+
   // If an AI provider is configured, use it for deep nuanced linguistics
-  if (aiProviders.length > 0) {
+  if (!quick && aiProviders.length > 0) {
     try {
       const prompt = `You are the master lexicographer behind the SayNest pronunciation and vocabulary app.
 Provide a rich, precise JSON analysis for the word or phrase: "${word}".
@@ -252,7 +282,7 @@ Return ONLY valid JSON with this exact schema:
             }
           }
         }
-        return res.json(parsed);
+        return res.json({ ...parsed, source: 'ai' });
       }
     } catch (geminiErr) {
       console.error('Gemini lookup error, falling back:', geminiErr);
@@ -306,12 +336,14 @@ Return ONLY valid JSON with this exact schema:
         formality: 'Neutral',
         cefr: 'B2'
       },
-      relatedExpressions: []
+      relatedExpressions: [],
+      source: 'dictionary'
     });
   }
 
   // Minimal algorithmic fallback
   return res.json({
+    source: 'fallback',
     word,
     type: 'word',
     phonetic: `/${word}/`,

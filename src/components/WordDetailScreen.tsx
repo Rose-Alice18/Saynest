@@ -15,6 +15,8 @@ interface WordDetailScreenProps {
   onToggleStar: (wordId: string) => void;
   onSearchLookup?: (word: string) => void;
   isSaved?: boolean;
+  /** True while AI details are still loading for this word */
+  isEnhancing?: boolean;
 }
 
 export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
@@ -24,7 +26,8 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
   onOpenPractice,
   onToggleStar,
   onSearchLookup,
-  isSaved = false
+  isSaved = false,
+  isEnhancing = false
 }) => {
   const [selectedAccent, setSelectedAccent] = useState<AccentType>('British');
   const [selectedPartOfSpeech, setSelectedPartOfSpeech] = useState<string | null>(
@@ -42,6 +45,16 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
   }, [word.id]);
+
+  // When AI details arrive, the parts of speech can change (e.g. 'word' becomes
+  // 'adverb'). If the selected one no longer exists, show all meanings.
+  React.useEffect(() => {
+    setSelectedPartOfSpeech((current) =>
+      current && word.meanings.some((m) => m.partOfSpeech.toLowerCase() === current.toLowerCase())
+        ? current
+        : word.meanings[0]?.partOfSpeech || null
+    );
+  }, [word.meanings]);
 
   const activeAccentInfo = word.accents.find(a => a.accent === selectedAccent) || word.accents[0];
 
@@ -162,6 +175,16 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
                 <Volume2 className="w-5 h-5 text-stone-900" />
               </button>
             </div>
+
+            {isEnhancing && (
+              <div
+                className="mt-2 inline-flex items-center gap-1.5 py-1 px-2.5 rounded-full bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-800"
+                role="status"
+              >
+                <Sparkles className="w-3 h-3 animate-pulse" />
+                Adding AI insights…
+              </div>
+            )}
 
             {/* Phonetic & Accent Dropdown */}
             <div className="flex flex-wrap items-center gap-3 mt-2 text-stone-600 text-sm">

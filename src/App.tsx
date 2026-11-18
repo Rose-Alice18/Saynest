@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { WordEntry, Collection } from './types';
 import { INITIAL_WORDS, INITIAL_COLLECTIONS } from './data/initialData';
 import { lookupWord } from './utils/lookupService';
@@ -95,7 +95,9 @@ export default function App() {
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
-  }, [currentTab, activeWordDetail, isCommuteMode, selectedCollectionId]);
+    // Depend on the word's id, not the object, so filling in AI details for the
+    // same word doesn't jump the page back to the top while it's being read.
+  }, [currentTab, activeWordDetail?.id, isCommuteMode, selectedCollectionId]);
 
   // Modals
   const [saveModalWord, setSaveModalWord] = useState<WordEntry | null>(null);
@@ -169,29 +171,78 @@ export default function App() {
   };
 
   // Handler: Lookup Word
+  //
+  // AI lookups can take 5-15s, so we first ask for the dictionary result
+  // (about 1s) and show it straight away, then fill in the AI details when
+  // they arrive. If the dictionary doesn't know the word, we keep the spinner
+  // and wait for the AI rather than showing placeholder text.
+  const lookupSeq = useRef(0);
+  const [isEnhancingLookup, setIsEnhancingLookup] = useState(false);
+
+  const showLookupResult = (result: WordEntry) => {
+    const withTimestamp: WordEntry = { ...result, searchedAt: new Date().toISOString() };
+    // Add to persistent search history (newest on top, deduplicated by word)
+    setSearchHistory((prev) => [
+      withTimestamp,
+      ...prev.filter((item) => item.word.toLowerCase() !== result.word.toLowerCase()),
+    ]);
+    setActiveWordDetail(result);
+  };
+
+  // Copy the AI content onto an existing entry, keeping its id and anything
+  // the user added (tags, star, collection, notes).
+  const withAiContent = (existing: WordEntry, ai: WordEntry): WordEntry => ({
+    ...existing,
+    type: ai.type,
+    phonetic: ai.phonetic,
+    syllables: ai.syllables,
+    accents: ai.accents,
+    meanings: ai.meanings,
+    nuance: ai.nuance,
+    relatedExpressions: ai.relatedExpressions,
+  });
+
   const handleSearchLookup = async (query: string) => {
+    const seq = ++lookupSeq.current; // ignore results from an older search
     setIsLoadingLookup(true);
+    setIsEnhancingLookup(false);
     try {
-      const result = await lookupWord(query);
-      const withTimestamp: WordEntry = {
-        ...result,
-        searchedAt: new Date().toISOString()
-      };
+      const quick = await lookupWord(query, { quick: true });
+      if (seq !== lookupSeq.current) return;
 
-      // Add to persistent search history (newest on top, deduplicated by word)
-      setSearchHistory((prev) => {
-        const filtered = prev.filter(
-          (item) => item.word.toLowerCase() !== result.word.toLowerCase()
-        );
-        return [withTimestamp, ...filtered];
-      });
+      if (quick.source === 'seed' || quick.source === 'ai') {
+        showLookupResult(quick.entry);
+        return;
+      }
 
-      setActiveWordDetail(result);
+      if (quick.source === 'dictionary') {
+        showLookupResult(quick.entry);
+        setIsLoadingLookup(false);
+        setIsEnhancingLookup(true);
+      }
+
+      const full = await lookupWord(query);
+      if (seq !== lookupSeq.current) return;
+
+      if (quick.source === 'fallback') {
+        // Nothing to show yet, so show whatever the full lookup found
+        showLookupResult(full.entry);
+      } else if (full.source === 'ai') {
+        const key = quick.entry.word.toLowerCase();
+        const sameWord = (w: WordEntry) => w.word.toLowerCase() === key;
+        setActiveWordDetail((prev) => (prev && prev.id === quick.entry.id ? withAiContent(prev, full.entry) : prev));
+        setSearchHistory((prev) => prev.map((w) => (sameWord(w) ? withAiContent(w, full.entry) : w)));
+        // If they saved the word while the AI was loading, upgrade the saved copy too
+        setWords((prev) => prev.map((w) => (sameWord(w) ? withAiContent(w, full.entry) : w)));
+      }
     } catch (err) {
       console.error('Lookup failed:', err);
-      showToast('Could not fetch word details. Please try again.');
+      if (seq === lookupSeq.current) showToast('Could not fetch word details. Please try again.');
     } finally {
-      setIsLoadingLookup(false);
+      if (seq === lookupSeq.current) {
+        setIsLoadingLookup(false);
+        setIsEnhancingLookup(false);
+      }
     }
   };
 
@@ -406,6 +457,7 @@ export default function App() {
               onOpenPractice={(w) => setPracticeModalWord(w)}
               onToggleStar={handleToggleStar}
               onSearchLookup={handleSearchLookup}
+              isEnhancing={isEnhancingLookup}
               isSaved={words.some((w) => w.word.toLowerCase() === activeWordDetail.word.toLowerCase())}
             />
           </div>
