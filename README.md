@@ -12,7 +12,16 @@ Built with React, Vite, Tailwind CSS and an Express server that talks to the Gem
 - **Library** of books with cover search (Open Library, with a Google Books fallback)
 - **Collections, review and commute mode** for practising saved words
 
-Without a Gemini API key the app still works, using the free [Dictionary API](https://dictionaryapi.dev/) for lookups, but the results are more basic.
+## AI providers
+
+SayNest uses AI for rich lookups and page scanning, trying providers in this order:
+
+1. **Gemini 3.8 Flash** (free tier)
+2. **Gemini 3.5 Flash-Lite** (free tier, stays fast when Flash is busy)
+3. **OpenAI gpt-6-luna** (paid backup)
+4. The free [Dictionary API](https://dictionaryapi.dev/), with more basic results
+
+Each AI provider is optional and only used if its key is set. If a provider is busy or slow, SayNest moves to the next one within seconds and skips it for a minute.
 
 ## Run locally
 
@@ -22,11 +31,12 @@ Without a Gemini API key the app still works, using the free [Dictionary API](ht
    ```
    npm install
    ```
-2. (Optional) Get a free Gemini API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then create a file named `.env.local` in the project folder:
+2. (Optional) Copy `.env.example` to a new file named `.env` and add your keys:
    ```
-   GEMINI_API_KEY="your-key-here"
+   GEMINI_API_KEY="your-gemini-key"
+   OPENAI_API_KEY="your-openai-key"
    ```
-   `.env.local` is ignored by git, so your key is never committed.
+   Get a free Gemini key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and an OpenAI key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys). `.env` is ignored by git, so your keys are never committed.
 3. Start the dev server:
    ```
    npm run dev
@@ -49,6 +59,6 @@ Any Node host works (for example Render or Railway):
 
 - **Build command:** `npm install && npm run build`
 - **Start command:** `npm start`
-- **Environment variables:** `NODE_ENV=production` and `GEMINI_API_KEY`
+- **Environment variables:** `NODE_ENV=production`, plus `GEMINI_API_KEY` and/or `OPENAI_API_KEY`
 
 The server listens on the `PORT` the host provides, or 3000 by default.

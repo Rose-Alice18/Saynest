@@ -12,44 +12,107 @@ const port = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
-// Initialize Gemini client if key is available
-const apiKey = process.env.GEMINI_API_KEY;
-let aiClient: GoogleGenAI | null = null;
-if (apiKey) {
-  try {
-    aiClient = new GoogleGenAI({
-      apiKey,
-      // The SDK default is 5 attempts with up to 60s between them, which can
-      // leave a user waiting minutes. Fail fast instead; trying the next model
-      // in GEMINI_MODELS acts as our retry.
-      httpOptions: {
-        timeout: 10_000,
-        retryOptions: { attempts: 1 },
+// ---------------------------------------------------------------------------
+// AI providers
+//
+// Each provider takes a prompt and returns the model's JSON text. They are
+// tried in order; if one is busy, slow or errors, the next one is used. A
+// provider is only enabled when its API key is set, so every one is optional.
+// If all of them fail, the endpoints fall back to the free Dictionary API.
+// ---------------------------------------------------------------------------
+
+// Per-request time limit, so a busy provider can't leave a user waiting.
+const AI_TIMEOUT_MS = 10_000;
+
+type AiProvider = { name: string; generate: (prompt: string) => Promise<string | undefined> };
+const aiProviders: AiProvider[] = [];
+
+// Gemini (free tier). Best model first; Flash-Lite stays fast when Flash is busy.
+if (process.env.GEMINI_API_KEY) {
+  const gemini = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    // The SDK default is 5 attempts with up to 60s between them, which left
+    // lookups hanging for 90s+. Moving on to the next provider is our retry.
+    httpOptions: { timeout: AI_TIMEOUT_MS, retryOptions: { attempts: 1 } },
+  });
+  for (const model of ['gemini-3.8-flash', 'gemini-3.5-flash-lite']) {
+    aiProviders.push({
+      name: model,
+      generate: async (prompt) => {
+        const response = await gemini.models.generateContent({
+          model,
+          contents: prompt,
+          config: { responseMimeType: 'application/json' },
+        });
+        return response.text;
       },
     });
-  } catch (e) {
-    console.error('Failed to initialize GoogleGenAI client:', e);
   }
 }
 
-// Best quality first. If a model is overloaded (503) or slow, the next one is
-// tried. Flash-Lite is the backup because it stays fast when Flash is busy.
-const GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite'];
-
-// Ask Gemini for a JSON answer, trying each model in turn.
-// Returns null if Gemini is unavailable so callers can use their fallback.
-async function generateJson(prompt: string): Promise<any | null> {
-  if (!aiClient) return null;
-  for (const model of GEMINI_MODELS) {
-    try {
-      const response = await aiClient.models.generateContent({
-        model,
-        contents: prompt,
-        config: { responseMimeType: 'application/json' },
+// OpenAI (paid, used as a backup when Gemini is unavailable).
+if (process.env.OPENAI_API_KEY) {
+  const model = process.env.OPENAI_MODEL || 'gpt-6-luna';
+  // Lookups don't need deep reasoning. With 'none', gpt-6-luna answers the
+  // lookup prompt in ~7s instead of ~18s, with the same output quality.
+  // Not every model accepts this setting, so it's only sent by default for
+  // gpt-6-luna; set OPENAI_REASONING_EFFORT to use it with another model.
+  const reasoningEffort =
+    process.env.OPENAI_REASONING_EFFORT || (model === 'gpt-6-luna' ? 'none' : undefined);
+  aiProviders.push({
+    name: model,
+    generate: async (prompt) => {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+          ...(reasoningEffort && { reasoning_effort: reasoningEffort }),
+        }),
+        // Last AI option before the dictionary, so it gets a little longer.
+        signal: AbortSignal.timeout(AI_TIMEOUT_MS * 2),
       });
-      if (response.text) return JSON.parse(response.text);
+      if (!res.ok) throw Object.assign(new Error(`OpenAI HTTP ${res.status}`), { status: res.status });
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content;
+    },
+  });
+}
+
+console.log(
+  aiProviders.length
+    ? `AI providers (in order): ${aiProviders.map((p) => p.name).join(' -> ')}`
+    : 'No AI keys set; using the free Dictionary API only'
+);
+
+// After a provider fails (busy, timed out, etc.), skip it for a while so
+// every request doesn't wait for it to fail again before moving on.
+const AI_COOLDOWN_MS = 60_000;
+const cooldownUntil = new Map<string, number>();
+
+// Ask the AI providers for a JSON answer, trying each in turn.
+// Returns null if none are available so callers can use their fallback.
+async function generateJson(prompt: string): Promise<any | null> {
+  const now = Date.now();
+  const ready = aiProviders.filter((p) => (cooldownUntil.get(p.name) ?? 0) <= now);
+  // If every provider is cooling down, try them all anyway rather than none.
+  for (const provider of ready.length ? ready : aiProviders) {
+    try {
+      const text = await provider.generate(prompt);
+      if (text) {
+        cooldownUntil.delete(provider.name);
+        return JSON.parse(text);
+      }
     } catch (err: any) {
-      console.warn(`Gemini ${model} failed (${err?.status ?? err?.name ?? 'error'}), trying next option`);
+      cooldownUntil.set(provider.name, Date.now() + AI_COOLDOWN_MS);
+      console.warn(
+        `AI ${provider.name} failed (${err?.status ?? err?.name ?? 'error'}), skipping it for ${AI_COOLDOWN_MS / 1000}s`
+      );
     }
   }
   return null;
@@ -109,8 +172,8 @@ app.get('/api/lookup', async (req, res) => {
   const word = query.trim();
   const dictData = await fetchDictionaryAudio(word);
 
-  // If Gemini is available, use it for deep nuanced linguistics
-  if (aiClient) {
+  // If an AI provider is configured, use it for deep nuanced linguistics
+  if (aiProviders.length > 0) {
     try {
       const prompt = `You are the master lexicographer behind the SayNest pronunciation and vocabulary app.
 Provide a rich, precise JSON analysis for the word or phrase: "${word}".
@@ -267,7 +330,7 @@ app.post('/api/scan', async (req, res) => {
     return res.status(400).json({ error: 'Text content is required' });
   }
 
-  if (aiClient) {
+  if (aiProviders.length > 0) {
     try {
       const prompt = `You are the reader assistant for SayNest.
 Analyze the following book excerpt or text paragraph:
