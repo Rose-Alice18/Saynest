@@ -12,10 +12,24 @@ export const VoiceSearchModal: React.FC<VoiceSearchModalProps> = ({
   onSearch
 }) => {
   const [transcript, setTranscript] = useState('');
+  // The recogniser's other guesses, so a misheard word can be corrected with one tap
+  const [alternatives, setAlternatives] = useState<string[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
   const [manualInput, setManualInput] = useState('');
   const recognitionRef = useRef<any>(null);
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Some browsers keep "listening" forever without reporting anything. Stop
+  // after this long without hearing words and tell the user.
+  const LISTEN_TIMEOUT_MS = 8000;
+
+  const clearWatchdog = () => {
+    if (watchdogRef.current) clearTimeout(watchdogRef.current);
+    watchdogRef.current = null;
+  };
+
+  const cleanHeard = (text: string) => text.trim().replace(/[.,/#!$%^&*;:{}=\-_`~()?]/g, '').trim();
 
   const sampleWords = ['mimic', 'acquiesce', 'notwithstanding', 'by the same token', 'ostensibly', 'ephemeral'];
 
@@ -39,56 +53,85 @@ export const VoiceSearchModal: React.FC<VoiceSearchModalProps> = ({
 
       recognition.continuous = false;
       recognition.interimResults = true;
-      recognition.maxAlternatives = 3;
+      recognition.maxAlternatives = 5;
       recognition.lang = navigator.language || 'en-US';
+
+      let heardAnything = false;
+      let failed = false;
 
       recognition.onstart = () => {
         setIsListening(true);
         setErrorStatus(null);
         setTranscript('');
+        setAlternatives([]);
+        clearWatchdog();
+        watchdogRef.current = setTimeout(() => {
+          if (!heardAnything) {
+            failed = true;
+            try { recognition.abort(); } catch {}
+            setIsListening(false);
+            setErrorStatus(
+              "We didn't catch that. Check your microphone is on, speak a little closer, or type below. " +
+              'If this keeps happening, try Chrome.'
+            );
+          }
+        }, LISTEN_TIMEOUT_MS);
       };
 
       recognition.onresult = (event: any) => {
-        let finalChunk = '';
-        let interimChunk = '';
+        heardAnything = true;
+        clearWatchdog();
+        let finalResult: any = null;
+        let interimText = '';
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const item = event.results[i];
-          if (item.isFinal) {
-            finalChunk += item[0].transcript;
-          } else {
-            interimChunk += item[0].transcript;
+          if (item.isFinal) finalResult = item;
+          else interimText += item[0].transcript;
+        }
+
+        if (finalResult) {
+          // Keep every distinct guess, best first, so the user can pick the
+          // right one instead of us searching for a mishearing
+          const guesses = Array.from({ length: finalResult.length }, (_, j) => cleanHeard(finalResult[j]?.transcript ?? ''))
+            .filter(Boolean)
+            .filter((g, idx, all) => all.findIndex((x) => x.toLowerCase() === g.toLowerCase()) === idx);
+          if (guesses.length) {
+            setTranscript(guesses[0]);
+            setManualInput(guesses[0]);
+            setAlternatives(guesses.slice(1));
           }
-        }
-
-        const heardText = (finalChunk || interimChunk).trim().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '');
-        if (heardText) {
-          setTranscript(heardText);
-        }
-
-        if (finalChunk && heardText) {
           setIsListening(false);
-          setTimeout(() => {
-            onSearch(heardText);
-            onClose();
-          }, 450);
+        } else if (cleanHeard(interimText)) {
+          setTranscript(cleanHeard(interimText));
         }
       };
 
       recognition.onerror = (event: any) => {
+        clearWatchdog();
+        if (failed) return; // our own timeout already explained it
+        failed = true;
         console.warn('Speech recognition status:', event.error);
         setIsListening(false);
-        if (event.error === 'not-allowed') {
-          setErrorStatus('Microphone permission not granted. You can type or tap a word below:');
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          setErrorStatus(
+            'Microphone access is blocked. Click the microphone or padlock icon in the address bar, allow it, then tap Listen Again.'
+          );
         } else if (event.error === 'no-speech') {
-          setErrorStatus('No voice picked up. Tap "Listen Again" or type your word:');
-        } else {
-          setErrorStatus(`Voice capture: ${event.error}. Tap to retry or type below:`);
+          setErrorStatus("We didn't hear anything. Tap Listen Again and speak clearly, or type below.");
+        } else if (event.error === 'network') {
+          setErrorStatus('Voice search needs an internet connection. Check your connection, or type below.');
+        } else if (event.error !== 'aborted') {
+          setErrorStatus(`Voice search had a problem (${event.error}). Tap Listen Again or type below.`);
         }
       };
 
       recognition.onend = () => {
+        clearWatchdog();
         setIsListening(false);
+        if (!heardAnything && !failed) {
+          setErrorStatus("We didn't hear anything. Tap Listen Again and speak clearly, or type below.");
+        }
       };
 
       recognition.start();
@@ -102,6 +145,7 @@ export const VoiceSearchModal: React.FC<VoiceSearchModalProps> = ({
     startListening();
 
     return () => {
+      clearWatchdog();
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
@@ -163,13 +207,17 @@ export const VoiceSearchModal: React.FC<VoiceSearchModalProps> = ({
           </div>
 
           <h3 className="text-lg font-bold font-serif-display text-stone-950 mt-4">
-            {isListening ? 'Listening now...' : transcript ? `"${transcript}"` : 'Say a word or phrase'}
+            {isListening
+              ? transcript ? `"${transcript}"` : 'Listening now...'
+              : transcript ? 'Is this right?' : 'Say a word or phrase'}
           </h3>
 
           <p className="text-xs text-stone-600 mt-1 max-w-xs">
-            {isListening 
-              ? 'Speak clearly into your mic — automatically looks up upon pausing'
-              : 'Tap microphone above to speak again, or type below'}
+            {isListening
+              ? 'Speak clearly, then pause'
+              : transcript
+                ? 'Tap what you said, fix it in the box below, or try again'
+                : 'Tap the microphone to speak, or type below'}
           </p>
 
           {!isListening && (
@@ -184,20 +232,47 @@ export const VoiceSearchModal: React.FC<VoiceSearchModalProps> = ({
           )}
         </div>
 
-        {/* Live transcript banner */}
-        {transcript && (
-          <div className="p-3 bg-white rounded-2xl border border-stone-200 text-sm font-bold text-stone-900 flex items-center justify-between shadow-2xs">
-            <span className="truncate">"{transcript}"</span>
+        {/* What we heard: confirm before searching, since speech
+            recognition often mishears. Other guesses are one tap away. */}
+        {transcript && !isListening && (
+          <div className="space-y-2 text-left">
             <button
+              type="button"
+              autoFocus
               onClick={() => {
                 onSearch(transcript);
                 onClose();
               }}
-              className="py-1 px-3 bg-[#FFE042] hover:bg-[#F7D836] rounded-xl text-xs font-bold text-stone-900 flex items-center gap-1 shrink-0 ml-2"
+              className="w-full p-3 bg-white hover:bg-[#FFFBEA] rounded-2xl border-2 border-[#FFE042] text-sm font-bold text-stone-900 flex items-center justify-between shadow-2xs transition-colors"
             >
-              <span>Search</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <span className="truncate">"{transcript}"</span>
+              <span className="py-1 px-3 bg-[#FFE042] rounded-xl text-xs font-bold flex items-center gap-1 shrink-0 ml-2">
+                Search <ArrowRight className="w-3.5 h-3.5" />
+              </span>
             </button>
+
+            {alternatives.length > 0 && (
+              <div>
+                <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">
+                  Or did you say:
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {alternatives.map((alt) => (
+                    <button
+                      key={alt}
+                      type="button"
+                      onClick={() => {
+                        onSearch(alt);
+                        onClose();
+                      }}
+                      className="py-1.5 px-3 bg-white hover:bg-[#FFE042] border border-stone-200 rounded-xl text-xs font-semibold text-stone-900 transition-colors"
+                    >
+                      {alt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
