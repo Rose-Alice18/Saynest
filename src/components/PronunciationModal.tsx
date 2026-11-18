@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { WordEntry, AccentType } from '../types';
-import { Volume2, Mic, MicOff, CheckCircle2, RotateCcw, X, Sparkles, Headphones, Gauge } from 'lucide-react';
+import { Volume2, Mic, MicOff, RotateCcw, X, Headphones, Gauge } from 'lucide-react';
 import { speakWord } from '../utils/speech';
+import {
+  SpokenCheck,
+  checkSpoken,
+  transcriptsFromEvent,
+  isSpeechRecognitionSupported,
+  recognitionErrorMessage,
+  UNSUPPORTED_MESSAGE,
+} from '../utils/speechCheck';
+import { SpokenCheckResult } from './SpokenCheckResult';
 
 interface PronunciationModalProps {
   word: WordEntry;
@@ -11,10 +20,8 @@ interface PronunciationModalProps {
 export const PronunciationModal: React.FC<PronunciationModalProps> = ({ word, onClose }) => {
   const [selectedAccent, setSelectedAccent] = useState<AccentType>('British');
   const [isRecording, setIsRecording] = useState(false);
-  const [hasRecorded, setHasRecorded] = useState(false);
-  const [spokenText, setSpokenText] = useState('');
-  const [score, setScore] = useState<number | null>(null);
-  const [feedback, setFeedback] = useState<string>('');
+  const [check, setCheck] = useState<SpokenCheck | null>(null);
+  const [micError, setMicError] = useState<string | null>(null);
   const [activePlayback, setActivePlayback] = useState(false);
   const [audioSpeed, setAudioSpeed] = useState<number>(1.0);
 
@@ -33,16 +40,11 @@ export const PronunciationModal: React.FC<PronunciationModalProps> = ({ word, on
   };
 
   const startVoiceRecording = () => {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      // Mocked interactive practice if speech recognition API is disabled in sandbox
-      setIsRecording(true);
-      setTimeout(() => {
-        setIsRecording(false);
-        setHasRecorded(true);
-        setSpokenText(word.word);
-        setScore(94);
-        setFeedback("Great pronunciation! Clean vowel onset and natural syllabic rhythm.");
-      }, 2000);
+    setCheck(null);
+    setMicError(null);
+
+    if (!isSpeechRecognitionSupported()) {
+      setMicError(UNSUPPORTED_MESSAGE);
       return;
     }
 
@@ -51,42 +53,35 @@ export const PronunciationModal: React.FC<PronunciationModalProps> = ({ word, on
       const recognition = new SpeechRecognition();
       recognition.lang = selectedAccent === 'British' ? 'en-GB' : selectedAccent === 'American' ? 'en-US' : 'en-AU';
       recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
+      // Several guesses, so a correctly said word isn't marked wrong just
+      // because the recogniser's first guess was a similar-sounding word
+      recognition.maxAlternatives = 5;
 
-      recognition.onstart = () => {
-        setIsRecording(true);
-        setHasRecorded(false);
-      };
+      // Browsers sometimes stop listening with neither a result nor an error
+      let settled = false;
+
+      recognition.onstart = () => setIsRecording(true);
 
       recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setSpokenText(transcript);
-        const isMatch = transcript.toLowerCase().includes(word.word.toLowerCase());
-        const calculatedScore = isMatch ? Math.floor(Math.random() * 8) + 92 : 72;
-        setScore(calculatedScore);
-        if (calculatedScore >= 90) {
-          setFeedback(`Excellent! Your ${selectedAccent} pronunciation closely matched the expected phonetic target.`);
-        } else {
-          setFeedback(`Heard "${transcript}". Focus on softening the vowel and stressing the first syllable.`);
-        }
+        settled = true;
+        setCheck(checkSpoken(word.word, transcriptsFromEvent(event)));
       };
 
-      recognition.onerror = () => {
+      recognition.onerror = (event: any) => {
+        settled = true;
         setIsRecording(false);
-        setHasRecorded(true);
-        setSpokenText(word.word);
-        setScore(90);
-        setFeedback("Good attempt! Keep practicing for crisp syllable pacing.");
+        setMicError(recognitionErrorMessage(event.error));
       };
 
       recognition.onend = () => {
         setIsRecording(false);
-        setHasRecorded(true);
+        if (!settled) setMicError(recognitionErrorMessage('no-speech'));
       };
 
       recognition.start();
     } catch {
       setIsRecording(false);
+      setMicError('Could not start the microphone. Please try again.');
     }
   };
 
@@ -229,28 +224,10 @@ export const PronunciationModal: React.FC<PronunciationModalProps> = ({ word, on
               )}
             </div>
 
-            {/* Score & Feedback Card */}
-            {hasRecorded && score !== null && (
-              <div className="mt-5 p-4 bg-emerald-50 border border-emerald-200/80 rounded-2xl text-left animate-in slide-in-from-bottom-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                    <span className="font-bold text-stone-900 text-sm">
-                      {score >= 90 ? 'Splendid!' : 'Good effort!'}
-                    </span>
-                  </div>
-                  <div className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-mono font-bold text-xs">
-                    {score}% Match
-                  </div>
-                </div>
-                <p className="text-xs text-stone-600 mt-2 leading-relaxed">
-                  {feedback}
-                </p>
-                {spokenText && (
-                  <div className="text-[11px] text-stone-500 mt-1 italic">
-                    Recognized speech: "{spokenText}"
-                  </div>
-                )}
+            {/* What was heard, or why listening failed */}
+            {!isRecording && (check || micError) && (
+              <div className="mt-5">
+                <SpokenCheckResult target={word.word} check={check} error={micError} />
               </div>
             )}
           </div>
@@ -260,8 +237,8 @@ export const PronunciationModal: React.FC<PronunciationModalProps> = ({ word, on
         <div className="p-4 bg-[#FAF6EC] border-t border-stone-200/70 flex items-center justify-between">
           <button
             onClick={() => {
-              setHasRecorded(false);
-              setScore(null);
+              setCheck(null);
+              setMicError(null);
             }}
             className="text-xs font-semibold text-stone-600 hover:text-stone-900 flex items-center gap-1"
           >

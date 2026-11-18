@@ -4,10 +4,19 @@ import { TRANSITION_CATEGORIES } from '../data/initialData';
 import { 
   Volume2, Star, Search, Bookmark, ChevronRight, Sparkles, 
   Plus, Check, ArrowLeft, BookOpen, User, Library,
-  Mic, MicOff, RotateCcw, CheckCircle2, X
+  Mic, MicOff, RotateCcw, X
 } from 'lucide-react';
 import { speakWord } from '../utils/speech';
+import {
+  SpokenCheck,
+  checkSpoken,
+  transcriptsFromEvent,
+  isSpeechRecognitionSupported,
+  recognitionErrorMessage,
+  UNSUPPORTED_MESSAGE,
+} from '../utils/speechCheck';
 import { SayNestBird } from './SayNestBird';
+import { SpokenCheckResult } from './SpokenCheckResult';
 
 interface ExpressionsScreenProps {
   userSavedTransitions: WordEntry[];
@@ -46,9 +55,8 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
 
   // Speech-to-Text Practice in Detail Card
   const [isPracticingSpeech, setIsPracticingSpeech] = useState(false);
-  const [practiceSpokenText, setPracticeSpokenText] = useState('');
-  const [practiceScore, setPracticeScore] = useState<number | null>(null);
-  const [practiceFeedback, setPracticeFeedback] = useState<string | null>(null);
+  const [practiceCheck, setPracticeCheck] = useState<SpokenCheck | null>(null);
+  const [practiceError, setPracticeError] = useState<string | null>(null);
   const practiceRecognitionRef = useRef<any>(null);
 
   // Find active category
@@ -174,10 +182,21 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
   };
 
   // Speech-to-Text Pronunciation Practice Handler in Detail Card
+  const resetPractice = () => {
+    setPracticeCheck(null);
+    setPracticeError(null);
+  };
+
+  // A result belongs to the phrase it was spoken for; clear it when switching
+  useEffect(() => {
+    resetPractice();
+  }, [selectedExpression?.word]);
+
   const startPracticeSpeech = () => {
-    if (typeof window === 'undefined') return;
-    if (!('SpeechRecognition' in window) && !('webkitSpeechRecognition' in window)) {
-      alert('Speech recognition is not supported in this browser.');
+    if (typeof window === 'undefined' || !selectedExpression) return;
+    resetPractice();
+    if (!isSpeechRecognitionSupported()) {
+      setPracticeError(UNSUPPORTED_MESSAGE);
       return;
     }
 
@@ -191,49 +210,35 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
       practiceRecognitionRef.current = rec;
       rec.continuous = false;
       rec.interimResults = false;
+      rec.maxAlternatives = 5;
       rec.lang = 'en-GB';
+      const target = selectedExpression.word;
 
+      // Browsers sometimes stop listening with neither a result nor an error
+      let settled = false;
       setIsPracticingSpeech(true);
-      setPracticeSpokenText('');
-      setPracticeScore(null);
-      setPracticeFeedback(null);
 
       rec.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript.trim();
-        setPracticeSpokenText(transcript);
-
-        // Normalize text for comparison
-        const targetClean = selectedExpression.word.toLowerCase().replace(/[^a-z0-9 ]/g, '');
-        const spokenClean = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '');
-
-        const isExactMatch = targetClean === spokenClean;
-        const isSubstring = spokenClean.includes(targetClean) || targetClean.includes(spokenClean);
-
-        if (isExactMatch) {
-          setPracticeScore(98);
-          setPracticeFeedback('Splendid! Flawless phonetic delivery and cadence.');
-        } else if (isSubstring) {
-          setPracticeScore(92);
-          setPracticeFeedback('Very good! The key transition phrase was clearly identified.');
-        } else {
-          setPracticeScore(75);
-          setPracticeFeedback(`Heard "${transcript}". Focus on softening vowels and distinct word boundaries.`);
-        }
+        settled = true;
+        setPracticeCheck(checkSpoken(target, transcriptsFromEvent(event)));
         setIsPracticingSpeech(false);
       };
 
       rec.onerror = (e: any) => {
+        settled = true;
         setIsPracticingSpeech(false);
-        setPracticeFeedback('Could not capture speech. Try again closer to microphone.');
+        setPracticeError(recognitionErrorMessage(e.error));
       };
 
       rec.onend = () => {
         setIsPracticingSpeech(false);
+        if (!settled) setPracticeError(recognitionErrorMessage('no-speech'));
       };
 
       rec.start();
     } catch {
       setIsPracticingSpeech(false);
+      setPracticeError('Could not start the microphone. Please try again.');
     }
   };
 
@@ -625,14 +630,10 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
                 <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
                   Practise Speaking (Speech-to-Text)
                 </span>
-                {practiceSpokenText && (
+                {(practiceCheck || practiceError) && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setPracticeSpokenText('');
-                      setPracticeScore(null);
-                      setPracticeFeedback(null);
-                    }}
+                    onClick={resetPractice}
                     className="text-[11px] text-stone-500 hover:text-stone-900 flex items-center gap-1 font-medium"
                   >
                     <RotateCcw className="w-3 h-3" />
@@ -655,29 +656,9 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
                 <span>{isPracticingSpeech ? 'Listening... Speak transition now' : 'Practise Speaking & Check'}</span>
               </button>
 
-              {/* Live Speech Recognition Results */}
-              {practiceSpokenText && (
-                <div className="p-3.5 bg-white rounded-2xl border border-stone-200/90 shadow-2xs space-y-2 animate-in fade-in">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>Speech Recognized:</span>
-                    </span>
-                    {practiceScore !== null && (
-                      <span className="px-2 py-0.5 rounded-full font-mono text-[11px] font-bold bg-emerald-100 text-emerald-800">
-                        {practiceScore}% Match
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-sm font-semibold font-serif text-stone-900 bg-[#FAF6EC] p-2.5 rounded-xl border border-stone-200/70">
-                    You said: <span className="font-bold text-stone-950">"{practiceSpokenText}"</span>
-                  </div>
-                  {practiceFeedback && (
-                    <p className="text-[11px] text-stone-600 leading-relaxed font-medium">
-                      {practiceFeedback}
-                    </p>
-                  )}
-                </div>
+              {/* What was heard, or why listening failed */}
+              {!isPracticingSpeech && (
+                <SpokenCheckResult target={selectedExpression.word} check={practiceCheck} error={practiceError} />
               )}
             </div>
 

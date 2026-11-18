@@ -27,7 +27,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   onSaveFromHistory,
   onClearHistory
 }) => {
-  const [activeView, setActiveView] = useState<'saved' | 'history'>('saved');
+  const [activeView, setActiveView] = useState<'saved' | 'history'>('history');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'All' | 'Words' | 'Phrases' | 'Transitions' | 'Quotes'>('All');
   const [activeAudioWordId, setActiveAudioWordId] = useState<string | null>(null);
@@ -113,20 +113,8 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-28">
       {/* Search Header */}
       <div className="sticky top-0 z-20 bg-[#FFFDF7]/95 backdrop-blur-md px-5 pt-4 pb-3 border-b border-stone-200/60 space-y-3">
-        {/* Top Segmented Mode: Saved Library vs Search History Archive */}
+        {/* Top Segmented Mode: Search History first, then Saved Library */}
         <div className="flex items-center gap-1 p-1 bg-stone-200/60 rounded-2xl max-w-md mx-auto w-full">
-          <button
-            onClick={() => setActiveView('saved')}
-            className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-              activeView === 'saved'
-                ? 'bg-white text-stone-950 shadow-xs'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <Bookmark className="w-3.5 h-3.5 text-amber-700" />
-            <span>Saved Library ({words.length})</span>
-          </button>
-
           <button
             onClick={() => setActiveView('history')}
             className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
@@ -137,6 +125,18 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           >
             <History className="w-3.5 h-3.5 text-stone-700" />
             <span>Search History ({searchHistory.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveView('saved')}
+            className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+              activeView === 'saved'
+                ? 'bg-white text-stone-950 shadow-xs'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <Bookmark className="w-3.5 h-3.5 text-amber-700" />
+            <span>Saved Library ({words.length})</span>
           </button>
         </div>
 
