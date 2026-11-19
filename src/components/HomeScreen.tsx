@@ -11,7 +11,10 @@ import { BookCover } from './BookCover';
 import { VoiceSearchModal } from './VoiceSearchModal';
 
 interface HomeScreenProps {
+  /** Everything looked up, newest first (search history) */
   recentWords: WordEntry[];
+  /** Saved words, for counting discoveries per book */
+  savedWords: WordEntry[];
   collections: Collection[];
   onSearchLookup: (query: string) => void;
   onSelectWord: (word: WordEntry) => void;
@@ -31,6 +34,7 @@ interface HomeScreenProps {
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   recentWords,
+  savedWords,
   collections,
   onSearchLookup,
   onSelectWord,
@@ -84,7 +88,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const activeBook = collections[0];
   // Real numbers for the "Currently reading" card
-  const activeBookSaved = activeBook ? recentWords.filter((w) => w.collectionId === activeBook.id).length : 0;
+  const activeBookSaved = activeBook ? savedWords.filter((w) => w.collectionId === activeBook.id).length : 0;
   const activeBookProgress =
     activeBook?.totalChapters && activeBook.currentChapter
       ? Math.min(100, Math.round((activeBook.currentChapter / activeBook.totalChapters) * 100))
@@ -210,7 +214,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-base sm:text-lg font-bold text-stone-900 font-serif-display">
-                  Recently saved
+                  Recently discovered
                 </h2>
                 {recentWords.length > 0 && (
                   <button
@@ -224,7 +228,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
               {recentWords.length === 0 && (
                 <div className="p-5 bg-white rounded-2xl border border-dashed border-stone-300 text-center text-xs text-stone-500">
-                  Words you save will appear here. Look one up above to get started.
+                  Words you look up will appear here. Try one above to get started.
                 </div>
               )}
 

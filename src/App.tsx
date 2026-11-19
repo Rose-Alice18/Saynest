@@ -606,7 +606,8 @@ export default function App() {
           <div className="flex-1 w-full">
             {currentTab === 'Home' && (
               <HomeScreen
-                recentWords={words}
+                recentWords={searchHistory}
+                savedWords={words}
                 collections={collections}
                 onSearchLookup={handleSearchLookup}
                 onSelectWord={(w) => {
@@ -622,8 +623,8 @@ export default function App() {
                   setCurrentTab('Collections');
                 }}
                 onOpenLibrary={() => {
-                  // "See all" sits under the saved words, so open the Saved list
-                  setLibraryView('saved');
+                  // "See all" sits under recent lookups, so open Search History
+                  setLibraryView('history');
                   setCurrentTab('Library');
                 }}
                 onOpenBookSearch={() => setIsBookSearchOpen(true)}
