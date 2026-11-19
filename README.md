@@ -8,7 +8,8 @@ Built with React, Vite, Tailwind CSS and an Express server that talks to the Gem
 
 - **Word lookup** with IPA, syllable breakdown, meanings, usage nuance and CEFR level
 - **Accent audio** for British, American and Australian English
-- **Scan a page** of a book to pull out vocabulary worth learning
+- **Scan a page**: photograph a book page (or paste text) and get the words worth learning, with meanings, levels and the chapter and page they came from
+- **Spaced review**: words come back for review just as you're about to forget them
 - **Library** of books with cover search (Open Library, with a Google Books fallback)
 - **Collections, review and commute mode** for practising saved words
 

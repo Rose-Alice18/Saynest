@@ -105,8 +105,8 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               <Camera className="w-4 h-4 text-amber-800" />
             </div>
             <div>
-              <div className="text-xs font-bold text-stone-900">Try a sample page</div>
-              <div className="text-[11px] text-stone-500">See how tapping words on a book page works</div>
+              <div className="text-xs font-bold text-stone-900">Scan a page</div>
+              <div className="text-[11px] text-stone-500">Snap the page you're reading and pick out words</div>
             </div>
           </button>
 

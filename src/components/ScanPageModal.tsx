@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { X, Search, Bookmark, Sparkles, BookOpen, FileText, Check, CheckSquare, Square, Loader2 } from 'lucide-react';
+import { X, Search, Bookmark, Sparkles, BookOpen, FileText, Check, CheckSquare, Square, Loader2, Camera, ImageUp } from 'lucide-react';
+import { prepareImageForUpload } from '../utils/imageResize';
 
 type ExtractMeta = { definition?: string; partOfSpeech?: string; chapter?: string; page?: string };
 
@@ -91,13 +92,58 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
   onDefineWord,
   onSaveExtractedWord,
 }) => {
-  const [activeTab, setActiveTab] = useState<'scan' | 'paste'>(initialTab);
+  // "Scan a page" opens the photo tab; the old demo page is now "sample"
+  const [activeTab, setActiveTab] = useState<'photo' | 'paste' | 'sample'>(
+    initialTab === 'paste' ? 'paste' : 'photo'
+  );
 
-  // Paste tab: words the AI picked out, and which have been saved
+  // Words the AI picked out (from a photo or pasted text), and which are saved
   const [isExtracting, setIsExtracting] = useState(false);
   const [extracted, setExtracted] = useState<ExtractedWord[] | null>(null);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [savedExtracted, setSavedExtracted] = useState<string[]>([]);
+
+  // Photo tab
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [isReadingPhoto, setIsReadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  // Chapter / page printed on the scanned page, saved with each word
+  const [photoMeta, setPhotoMeta] = useState<{ chapter?: string; page?: string }>({});
+
+  const handlePhoto = async (file: File | undefined) => {
+    if (!file) return;
+    setPhotoError(null);
+    setExtracted(null);
+    setSavedExtracted([]);
+    setPhotoMeta({});
+    setIsReadingPhoto(true);
+    try {
+      const prepared = await prepareImageForUpload(file);
+      setPhotoPreview(prepared.dataUrl);
+      const res = await fetch('/api/scan-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: prepared.data, mimeType: prepared.mimeType }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Couldn't read that photo. Please try again.");
+
+      const items: ExtractedWord[] = data.extractedWords || [];
+      setExtracted(items);
+      setPhotoMeta({ chapter: data.chapter, page: data.pageNumber });
+      // Put what we read into the paste box, so misread words can be fixed
+      if (data.pageText) setPastedText(data.pageText);
+      if (!data.pageText) {
+        setPhotoError("We couldn't find any text in that photo. Make sure the page fills the frame and is in focus.");
+      } else if (!items.length) {
+        setPhotoError('We read the page but found no words worth learning on it.');
+      }
+    } catch (err: any) {
+      setPhotoError(err?.message || "Couldn't read that photo. Please try again.");
+    } finally {
+      setIsReadingPhoto(false);
+    }
+  };
 
   const handleExtract = async () => {
     if (!pastedText.trim()) return;
@@ -105,6 +151,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
     setExtractError(null);
     setExtracted(null);
     setSavedExtracted([]);
+    setPhotoMeta({}); // edited text isn't tied to the photo's page any more
     try {
       const res = await fetch('/api/scan', {
         method: 'POST',
@@ -127,6 +174,8 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
     onSaveExtractedWord(item.word, item.contextSentence || '', item.word.includes(' ') ? 'phrase' : 'word', {
       definition: item.briefMeaning,
       partOfSpeech: item.partOfSpeech,
+      chapter: photoMeta.chapter,
+      page: photoMeta.page,
     });
     setSavedExtracted((prev) => [...prev, item.word]);
   };
@@ -136,9 +185,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
   );
   const [isSelectAll, setIsSelectAll] = useState(false);
   const [selectedBatch, setSelectedBatch] = useState<string[]>([]);
-  const [pastedText, setPastedText] = useState(
-    "Elizabeth had been obliged, by the scarcity of gentlemen, to sit down for two dances; and during part of that time, she was engaged in conversation with a very agreeable young man, who was, in consequence of his being her sister's partner, to admire. His manners were easy and unassuming, and his conversation was sensible and animated."
-  );
+  const [pastedText, setPastedText] = useState('');
   const [activeThumbnail, setActiveThumbnail] = useState(0);
 
   const bookPages = [
@@ -183,6 +230,73 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
     }
   };
 
+  // Words found in a photo or pasted text, each with Define / Save
+  const resultsList = extracted && extracted.length > 0 && (
+    <div className="space-y-2">
+      <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wider">
+        Words worth learning ({extracted.length})
+        {(photoMeta.chapter || photoMeta.page) && (
+          <span className="normal-case font-semibold text-stone-400">
+            {' '}· {photoMeta.chapter && `Chapter ${photoMeta.chapter}`}
+            {photoMeta.chapter && photoMeta.page && ', '}
+            {photoMeta.page && `page ${photoMeta.page}`}
+          </span>
+        )}
+      </div>
+      {extracted.map((item) => {
+        const isSaved = savedExtracted.includes(item.word);
+        return (
+          <div key={item.word} className="p-3 bg-white rounded-2xl border border-stone-200 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className="font-bold font-serif-display text-stone-950 truncate">{item.word}</span>
+                {item.partOfSpeech && (
+                  <span className="text-[11px] text-stone-500 capitalize">{item.partOfSpeech}</span>
+                )}
+                {item.cefr && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-stone-100 text-stone-600">{item.cefr}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={() => onDefineWord(item.word)}
+                  className="py-1 px-2.5 bg-stone-100 hover:bg-stone-200 rounded-lg text-[11px] font-bold text-stone-800"
+                >
+                  Define
+                </button>
+                <button
+                  onClick={() => saveExtracted(item)}
+                  disabled={isSaved}
+                  className={`py-1 px-2.5 rounded-lg text-[11px] font-bold flex items-center gap-1 ${
+                    isSaved ? 'bg-emerald-50 text-emerald-800' : 'bg-[#FFE042] hover:bg-[#F7D836] text-stone-900'
+                  }`}
+                >
+                  {isSaved ? <><Check className="w-3 h-3" /> Saved</> : <><Bookmark className="w-3 h-3" /> Save</>}
+                </button>
+              </div>
+            </div>
+            {item.briefMeaning && <p className="text-xs text-stone-700">{item.briefMeaning}</p>}
+            {item.contextSentence && (
+              <p className="text-[11px] text-stone-500 italic font-serif">"{item.contextSentence}"</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const tabButton = (tab: typeof activeTab, Icon: React.ElementType, label: string) => (
+    <button
+      onClick={() => setActiveTab(tab)}
+      className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+        activeTab === tab ? 'bg-stone-900 text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
+      }`}
+    >
+      <Icon className="w-3.5 h-3.5" />
+      <span>{label}</span>
+    </button>
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in">
       <div 
@@ -193,12 +307,12 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200/70 bg-[#FFFDF7]">
           <div className="flex items-center gap-2">
             <h3 className="font-bold text-stone-900 text-lg font-serif-display">
-              {activeTab === 'paste' ? 'Find words in text' : 'Scan & Discover'}
+              {activeTab === 'photo' ? 'Scan a page' : activeTab === 'paste' ? 'Find words in text' : 'Sample page'}
             </h3>
           </div>
           <div className="flex items-center gap-2">
             {/* Select All applies to the sample page only */}
-            {activeTab === 'scan' && <button
+            {activeTab === 'sample' && <button
               onClick={handleToggleSelectAll}
               className={`text-xs font-bold px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
                 isSelectAll 
@@ -229,35 +343,86 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
         </div>
 
         {/* Mode Selector */}
-        <div className="flex items-center gap-1 p-2 bg-[#FAF6EC] border-b border-stone-200/60 px-6">
-          <button
-            onClick={() => setActiveTab('scan')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
-              activeTab === 'scan' ? 'bg-stone-900 text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Sample page</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('paste')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
-              activeTab === 'paste' ? 'bg-stone-900 text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Paste your text</span>
-          </button>
+        <div className="flex flex-wrap items-center gap-1 py-2 bg-[#FAF6EC] border-b border-stone-200/60 px-6">
+          {tabButton('photo', Camera, 'Scan a photo')}
+          {tabButton('paste', FileText, 'Paste text')}
+          {tabButton('sample', BookOpen, 'Sample page')}
         </div>
 
         {/* Body Content */}
         <div className="p-6 overflow-y-auto space-y-5">
-          {activeTab === 'scan' && (
+          {activeTab === 'photo' && (
+            <div className="space-y-4">
+              {/* capture="environment" opens the back camera on phones;
+                  the second input lets people pick an existing photo */}
+              <div className="grid grid-cols-2 gap-2">
+                <label className="cursor-pointer p-4 bg-[#FFE042] hover:bg-[#F7D836] rounded-2xl flex flex-col items-center gap-1.5 text-stone-900 transition-transform active:scale-95">
+                  <Camera className="w-6 h-6" />
+                  <span className="text-xs font-bold">Take a photo</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="sr-only"
+                    disabled={isReadingPhoto}
+                    onChange={(e) => { handlePhoto(e.target.files?.[0]); e.target.value = ''; }}
+                  />
+                </label>
+                <label className="cursor-pointer p-4 bg-white hover:bg-stone-50 border border-stone-200 rounded-2xl flex flex-col items-center gap-1.5 text-stone-900 transition-transform active:scale-95">
+                  <ImageUp className="w-6 h-6" />
+                  <span className="text-xs font-bold">Choose a photo</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    disabled={isReadingPhoto}
+                    onChange={(e) => { handlePhoto(e.target.files?.[0]); e.target.value = ''; }}
+                  />
+                </label>
+              </div>
+
+              {!photoPreview && !isReadingPhoto && (
+                <p className="text-[11px] text-stone-500 text-center leading-relaxed">
+                  Snap the page you're reading. Keep it flat, well lit and filling the frame. We'll read it and pick out
+                  words worth learning.
+                </p>
+              )}
+
+              {photoPreview && (
+                <div className="flex items-center gap-3 p-2.5 bg-white rounded-2xl border border-stone-200">
+                  <img src={photoPreview} alt="Your page" className="w-14 h-18 object-cover rounded-lg border border-stone-200" />
+                  <div className="text-xs text-stone-600 flex-1">
+                    {isReadingPhoto ? (
+                      <span className="flex items-center gap-2 font-semibold text-stone-800">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Reading your page…
+                      </span>
+                    ) : extracted?.length ? (
+                      <>
+                        Page read.{' '}
+                        <button onClick={() => setActiveTab('paste')} className="underline font-semibold text-stone-800">
+                          See or fix the text
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+
+              {photoError && (
+                <div role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900">
+                  {photoError}
+                </div>
+              )}
+
+              {resultsList}
+            </div>
+          )}
+          {activeTab === 'sample' && (
             <>
               {/* Be upfront that this is a demo page, not a camera scan */}
               <div className="text-[11px] text-stone-600 bg-amber-50 border border-amber-200/80 rounded-xl p-2.5">
                 This is a <strong>sample page</strong> to show how scanning works: tap a highlighted word.
-                To use your own reading, choose <strong>Paste your text</strong>.
+                To use your own reading, choose <strong>Scan a photo</strong> or <strong>Paste text</strong>.
               </div>
 
               {/* Page Header */}
@@ -422,58 +587,13 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
                 </div>
               )}
 
-              {/* Words picked out of the pasted text */}
-              {extracted && extracted.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wider">
-                    Words worth learning ({extracted.length})
-                  </div>
-                  {extracted.map((item) => {
-                    const isSaved = savedExtracted.includes(item.word);
-                    return (
-                      <div key={item.word} className="p-3 bg-white rounded-2xl border border-stone-200 space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-baseline gap-2 min-w-0">
-                            <span className="font-bold font-serif-display text-stone-950 truncate">{item.word}</span>
-                            {item.partOfSpeech && (
-                              <span className="text-[11px] text-stone-500 capitalize">{item.partOfSpeech}</span>
-                            )}
-                            {item.cefr && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-stone-100 text-stone-600">{item.cefr}</span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              onClick={() => onDefineWord(item.word)}
-                              className="py-1 px-2.5 bg-stone-100 hover:bg-stone-200 rounded-lg text-[11px] font-bold text-stone-800"
-                            >
-                              Define
-                            </button>
-                            <button
-                              onClick={() => saveExtracted(item)}
-                              disabled={isSaved}
-                              className={`py-1 px-2.5 rounded-lg text-[11px] font-bold flex items-center gap-1 ${
-                                isSaved ? 'bg-emerald-50 text-emerald-800' : 'bg-[#FFE042] hover:bg-[#F7D836] text-stone-900'
-                              }`}
-                            >
-                              {isSaved ? <><Check className="w-3 h-3" /> Saved</> : <><Bookmark className="w-3 h-3" /> Save</>}
-                            </button>
-                          </div>
-                        </div>
-                        {item.briefMeaning && <p className="text-xs text-stone-700">{item.briefMeaning}</p>}
-                        {item.contextSentence && (
-                          <p className="text-[11px] text-stone-500 italic font-serif">"{item.contextSentence}"</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {/* Words picked out of the pasted (or scanned) text */}
+              {resultsList}
             </div>
           )}
 
           {/* Extracted Text Preview Section (sample page) */}
-          {activeTab === 'scan' && <div className="bg-[#FAF6EC] p-4 rounded-2xl border border-stone-200/80">
+          {activeTab === 'sample' && <div className="bg-[#FAF6EC] p-4 rounded-2xl border border-stone-200/80">
             <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wider mb-1 flex items-center justify-between">
               <span>Extracted context & selection</span>
               {isSelectAll && (
@@ -489,7 +609,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
         </div>
 
         {/* Bottom Primary CTA (sample page; pasted words have their own Save buttons) */}
-        {activeTab === 'scan' && <div className="p-4 bg-[#FFFDF7] border-t border-stone-200/70">
+        {activeTab === 'sample' && <div className="p-4 bg-[#FFFDF7] border-t border-stone-200/70">
           <button
             onClick={() => handleSaveCurrent(selectedWord.includes(' ') ? 'transition' : 'word')}
             className="w-full py-3.5 px-4 bg-[#FFE042] hover:bg-[#F7D836] text-stone-900 font-bold text-sm rounded-2xl shadow-sm transition-transform active:scale-[0.98] flex items-center justify-center gap-2"

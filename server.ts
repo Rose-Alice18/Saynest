@@ -10,7 +10,11 @@ dotenv.config({ path: ['.env.local', '.env'], quiet: true });
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+// Page photos are sent as base64 JSON, so that one route allows a larger body.
+// Everything else keeps Express's small default.
+const smallJson = express.json();
+const photoJson = express.json({ limit: '8mb' });
+app.use((req, res, next) => (req.path === '/api/scan-image' ? photoJson : smallJson)(req, res, next));
 
 // ---------------------------------------------------------------------------
 // AI providers
@@ -24,7 +28,9 @@ app.use(express.json());
 // Per-request time limit, so a busy provider can't leave a user waiting.
 const AI_TIMEOUT_MS = 10_000;
 
-type AiProvider = { name: string; generate: (prompt: string) => Promise<string | undefined> };
+type AiImage = { mimeType: string; data: string }; // data is base64
+type AiRequest = { prompt: string; image?: AiImage; timeoutMs: number };
+type AiProvider = { name: string; generate: (req: AiRequest) => Promise<string | undefined> };
 const aiProviders: AiProvider[] = [];
 
 // Gemini (free tier). Best model first; Flash-Lite stays fast when Flash is busy.
@@ -38,11 +44,16 @@ if (process.env.GEMINI_API_KEY) {
   for (const model of ['gemini-3.8-flash', 'gemini-3.5-flash-lite']) {
     aiProviders.push({
       name: model,
-      generate: async (prompt) => {
+      generate: async ({ prompt, image, timeoutMs }) => {
         const response = await gemini.models.generateContent({
           model,
-          contents: prompt,
-          config: { responseMimeType: 'application/json' },
+          contents: image
+            ? [{ role: 'user', parts: [{ inlineData: image }, { text: prompt }] }]
+            : prompt,
+          config: {
+            responseMimeType: 'application/json',
+            httpOptions: { timeout: timeoutMs, retryOptions: { attempts: 1 } },
+          },
         });
         return response.text;
       },
@@ -61,7 +72,13 @@ if (process.env.OPENAI_API_KEY) {
     process.env.OPENAI_REASONING_EFFORT || (model === 'gpt-6-luna' ? 'none' : undefined);
   aiProviders.push({
     name: model,
-    generate: async (prompt) => {
+    generate: async ({ prompt, image, timeoutMs }) => {
+      const content = image
+        ? [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: `data:${image.mimeType};base64,${image.data}` } },
+          ]
+        : prompt;
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -70,12 +87,12 @@ if (process.env.OPENAI_API_KEY) {
         },
         body: JSON.stringify({
           model,
-          messages: [{ role: 'user', content: prompt }],
+          messages: [{ role: 'user', content }],
           response_format: { type: 'json_object' },
           ...(reasoningEffort && { reasoning_effort: reasoningEffort }),
         }),
         // Last AI option before the dictionary, so it gets a little longer.
-        signal: AbortSignal.timeout(AI_TIMEOUT_MS * 2),
+        signal: AbortSignal.timeout(timeoutMs * 2),
       });
       if (!res.ok) throw Object.assign(new Error(`OpenAI HTTP ${res.status}`), { status: res.status });
       const data = await res.json();
@@ -97,13 +114,17 @@ const cooldownUntil = new Map<string, number>();
 
 // Ask the AI providers for a JSON answer, trying each in turn.
 // Returns null if none are available so callers can use their fallback.
-async function generateJson(prompt: string): Promise<any | null> {
+async function generateJson(
+  prompt: string,
+  options: { image?: AiImage; timeoutMs?: number } = {}
+): Promise<any | null> {
+  const request: AiRequest = { prompt, image: options.image, timeoutMs: options.timeoutMs ?? AI_TIMEOUT_MS };
   const now = Date.now();
   const ready = aiProviders.filter((p) => (cooldownUntil.get(p.name) ?? 0) <= now);
   // If every provider is cooling down, try them all anyway rather than none.
   for (const provider of ready.length ? ready : aiProviders) {
     try {
-      const text = await provider.generate(prompt);
+      const text = await provider.generate(request);
       if (text) {
         cooldownUntil.delete(provider.name);
         return JSON.parse(text);
@@ -431,6 +452,61 @@ Return ONLY valid JSON:
     }
   }
   return res.json({ extractedWords: picks.slice(0, 6) });
+});
+
+// Scan a photo of a book page: read the text and pick out words to learn.
+// The client shrinks photos before sending, so they're well under the limit.
+const MAX_PHOTO_BASE64 = 7 * 1024 * 1024;
+
+app.post('/api/scan-image', async (req, res) => {
+  const { image, mimeType } = req.body || {};
+  if (typeof image !== 'string' || !image || typeof mimeType !== 'string' || !/^image\/(jpeg|png|webp)$/.test(mimeType)) {
+    return res.status(400).json({ error: 'Send a JPEG, PNG or WebP photo.' });
+  }
+  if (image.length > MAX_PHOTO_BASE64) {
+    return res.status(413).json({ error: 'That photo is too large. Try a smaller one.' });
+  }
+  if (aiProviders.length === 0) {
+    return res.status(503).json({ error: 'Page scanning needs an AI key. Add GEMINI_API_KEY to use it.' });
+  }
+
+  const prompt = `You are the reading assistant for SayNest, a vocabulary app.
+The image is a photo of a page from a book, article or document.
+
+1. Transcribe the main body text exactly as printed (keep paragraph breaks; skip running headers, footers and page numbers).
+2. Pick 3 to 8 words, phrases, idioms or transitions from that text that an eager reader would want to learn. Prefer less common or nuanced items; skip names of people and places.
+3. Note the page number and chapter if they are printed on the page.
+
+If the image has no readable text, return an empty pageText and an empty extractedWords list.
+
+Return ONLY valid JSON:
+{
+  "pageText": "...",
+  "pageNumber": "112 or null",
+  "chapter": "VII or null",
+  "extractedWords": [
+    {
+      "word": "exactly as it appears, in lowercase unless a proper noun",
+      "partOfSpeech": "...",
+      "briefMeaning": "short plain-English meaning in this context",
+      "contextSentence": "the full sentence from the page containing it",
+      "cefr": "B2 | C1 | C2"
+    }
+  ]
+}`;
+
+  // Reading a photo takes longer than a word lookup
+  const result = await generateJson(prompt, { image: { mimeType, data: image }, timeoutMs: 20_000 });
+  if (!result) {
+    return res.status(503).json({ error: 'The page reader is busy right now. Please try again in a minute.' });
+  }
+  const clean = (v: unknown) => (typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'null' ? v.trim() : undefined);
+  return res.json({
+    pageText: typeof result.pageText === 'string' ? result.pageText : '',
+    pageNumber: clean(result.pageNumber),
+    chapter: clean(result.chapter),
+    extractedWords: Array.isArray(result.extractedWords) ? result.extractedWords.filter((w: any) => w?.word) : [],
+  });
 });
 
 // Book search & cover fetch endpoint
