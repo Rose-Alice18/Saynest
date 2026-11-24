@@ -12,6 +12,14 @@ interface CommuteScreenProps {
   onBack: () => void;
 }
 
+// Slow, normal and fast sit at the left end, middle and right end of the
+// slider, so the buttons under it line up with the positions they stand for
+const SPEED_PRESETS = [
+  { label: '0.6× Slow', speed: 0.6 },
+  { label: '1.0× Normal', speed: 1.0 },
+  { label: '1.4× Fast', speed: 1.4 }
+];
+
 export const CommuteScreen: React.FC<CommuteScreenProps> = ({ words, onBack }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -115,19 +123,32 @@ export const CommuteScreen: React.FC<CommuteScreenProps> = ({ words, onBack }) =
     }
   };
 
-  const cycleSpeed = () => {
-    const speeds = [0.8, 1.0, 1.2];
-    const next = speeds[(speeds.indexOf(speechSpeed) + 1) % speeds.length];
+  // Change the pace and hear it straight away. While the slider is being
+  // dragged, wait until it settles so the audio doesn't restart on every step.
+  const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const changeSpeed = (next: number, { immediate = true } = {}) => {
     setSpeechSpeed(next);
-    if (isPlaying) {
+    if (!isPlayingRef.current) return;
+    if (restartTimer.current) clearTimeout(restartTimer.current);
+    const restart = () => {
+      if (!isPlayingRef.current) return;
       stopAllAudio();
       // Pass the new speed directly; the state update hasn't applied yet
       runSequence(currentIndex, next);
-    }
+    };
+    if (immediate) restart();
+    else restartTimer.current = setTimeout(restart, 350);
+  };
+
+  const cycleSpeed = () => {
+    // Step to the next preset above the current pace, wrapping round
+    const next = SPEED_PRESETS.find((p) => p.speed > speechSpeed + 0.01)?.speed ?? SPEED_PRESETS[0].speed;
+    changeSpeed(next);
   };
 
   useEffect(() => {
     return () => {
+      if (restartTimer.current) clearTimeout(restartTimer.current);
       runIdRef.current++;
       isPlayingRef.current = false;
       stopAllAudio();
@@ -285,43 +306,27 @@ export const CommuteScreen: React.FC<CommuteScreenProps> = ({ words, onBack }) =
                 <span>Audio Pace</span>
               </span>
               <span className="font-mono font-bold text-amber-800">
-                {speechSpeed <= 0.75 ? 'Slow' : speechSpeed >= 1.25 ? 'Fast' : 'Normal'} ({speechSpeed.toFixed(2)}×)
+                {speechSpeed < 0.9 ? 'Slow' : speechSpeed > 1.1 ? 'Fast' : 'Normal'} ({speechSpeed.toFixed(2)}×)
               </span>
             </div>
 
             <input
               type="range"
-              min="0.5"
-              max="1.5"
+              min={SPEED_PRESETS[0].speed}
+              max={SPEED_PRESETS[SPEED_PRESETS.length - 1].speed}
               step="0.05"
               value={speechSpeed}
-              onChange={(e) => {
-                const newSpeed = parseFloat(e.target.value);
-                setSpeechSpeed(newSpeed);
-                if (isPlaying) {
-                  stopAllAudio();
-                  runSequence(currentIndex);
-                }
-              }}
+              aria-label="Audio pace"
+              onChange={(e) => changeSpeed(parseFloat(e.target.value), { immediate: false })}
               className="w-full h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-stone-900"
             />
 
             <div className="flex items-center justify-between gap-1 pt-0.5">
-              {[
-                { label: '0.75x Slow', speed: 0.75 },
-                { label: '1.0x Normal', speed: 1.0 },
-                { label: '1.25x Fast', speed: 1.25 }
-              ].map(preset => (
+              {SPEED_PRESETS.map(preset => (
                 <button
                   key={preset.label}
                   type="button"
-                  onClick={() => {
-                    setSpeechSpeed(preset.speed);
-                    if (isPlaying) {
-                      stopAllAudio();
-                      runSequence(currentIndex);
-                    }
-                  }}
+                  onClick={() => changeSpeed(preset.speed)}
                   className={`text-[10px] px-2 py-0.5 rounded-md font-semibold transition-colors ${
                     Math.abs(speechSpeed - preset.speed) < 0.03
                       ? 'bg-amber-100 text-amber-900 font-bold'

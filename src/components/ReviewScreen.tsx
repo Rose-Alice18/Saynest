@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { WordEntry } from '../types';
+import { WordEntry, Collection } from '../types';
 import { dueWords, estimateMinutes, ReviewRating, nextReviewLabel } from '../utils/review';
 import { 
   Volume2, Star, Headphones, Eye, RotateCcw, Check, 
@@ -18,6 +18,8 @@ interface ReviewScreenProps {
   onOpenCommuteMode: () => void;
   onFinishSession: () => void;
   onBack?: () => void;
+  /** The book being read now, for the "current book" deck */
+  currentBook?: Collection;
 }
 
 export type CustomPracticeMode = 'flashcard' | 'recall' | 'listening' | 'quiz';
@@ -27,12 +29,13 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   onRateWord,
   onOpenCommuteMode,
   onFinishSession,
-  onBack
+  onBack,
+  currentBook
 }) => {
   const [activeTab, setActiveTab] = useState<'Today' | 'Custom' | 'Commute'>('Today');
   
   // Custom Deck Configuration
-  const [customFilter, setCustomFilter] = useState<'starred' | 'transitions' | 'pride' | 'hard' | 'all'>('starred');
+  const [customFilter, setCustomFilter] = useState<'starred' | 'transitions' | 'book' | 'hard' | 'all'>('starred');
   const [customDeckLimit, setCustomDeckLimit] = useState<number>(10);
   const [lengthPreset, setLengthPreset] = useState<number | 'all' | 'custom'>(10);
   const [practiceMode, setPracticeMode] = useState<CustomPracticeMode>('flashcard');
@@ -65,6 +68,9 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
     document.body.scrollTop = 0;
   }, []);
 
+  // Words saved into the book you're reading now
+  const inCurrentBook = (w: WordEntry) => !!currentBook && w.collectionId === currentBook.id;
+
   // Compute Review Deck based on active mode
   const getDeck = (): WordEntry[] => {
     if (activeTab === 'Custom') {
@@ -73,8 +79,8 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
         filtered = filtered.filter(w => w.isStarred);
       } else if (customFilter === 'transitions') {
         filtered = filtered.filter(w => w.type === 'transition' || w.tags?.includes('transition'));
-      } else if (customFilter === 'pride') {
-        filtered = filtered.filter(w => w.collectionId === 'pride-and-prejudice' || w.collectionId === 'pride-prejudice' || w.source?.title?.toLowerCase().includes('pride'));
+      } else if (customFilter === 'book') {
+        filtered = filtered.filter(inCurrentBook);
       } else if (customFilter === 'hard') {
         filtered = filtered.filter(w => w.nuance?.cefr === 'C1' || w.nuance?.cefr === 'B2' || w.meanings.length > 1);
       }
@@ -277,7 +283,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   const getFilterCount = (filterId: typeof customFilter) => {
     if (filterId === 'starred') return words.filter(w => w.isStarred).length;
     if (filterId === 'transitions') return words.filter(w => w.type === 'transition' || w.tags?.includes('transition')).length;
-    if (filterId === 'pride') return words.filter(w => w.collectionId === 'pride-and-prejudice' || w.collectionId === 'pride-prejudice' || w.source?.title?.toLowerCase().includes('pride')).length;
+    if (filterId === 'book') return words.filter(inCurrentBook).length;
     if (filterId === 'hard') return words.filter(w => w.nuance?.cefr === 'C1' || w.nuance?.cefr === 'B2').length;
     return words.length;
   };
@@ -491,7 +497,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                 {[
                   { id: 'starred', label: 'Starred Discoveries', icon: Star, count: getFilterCount('starred'), activeIconClass: 'fill-amber-400 text-amber-500' },
                   { id: 'transitions', label: 'Rhetorical Transitions', icon: Layers, count: getFilterCount('transitions') },
-                  { id: 'pride', label: 'Pride & Prejudice', icon: BookOpen, count: getFilterCount('pride') },
+                  { id: 'book', label: currentBook ? `Reading now: ${currentBook.title}` : "Book you're reading", icon: BookOpen, count: getFilterCount('book') },
                   { id: 'hard', label: 'Advanced Words (B2–C1)', icon: Sparkles, count: getFilterCount('hard') },
                   { id: 'all', label: 'Entire Nest Library', icon: BookMarked, count: words.length },
                 ].map((item) => {
