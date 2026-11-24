@@ -14,6 +14,8 @@ interface WordDetailScreenProps {
   onOpenSaveModal: (word: WordEntry) => void;
   onOpenPractice: (word: WordEntry) => void;
   onToggleStar: (wordId: string) => void;
+  /** Remove this word from the saved library (it stays in Search History) */
+  onUnsave?: () => void;
   onSearchLookup?: (word: string) => void;
   isSaved?: boolean;
   /** True while AI details are still loading for this word */
@@ -26,6 +28,7 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
   onOpenSaveModal,
   onOpenPractice,
   onToggleStar,
+  onUnsave,
   onSearchLookup,
   isSaved = false,
   isEnhancing = false
@@ -107,11 +110,12 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
             <Star className={`w-5 h-5 ${word.isStarred ? 'fill-amber-400' : ''}`} />
           </button>
           <button
-            onClick={() => onOpenSaveModal(word)}
+            onClick={() => (isSaved && onUnsave ? onUnsave() : onOpenSaveModal(word))}
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
               isSaved ? 'text-amber-600 bg-amber-50' : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
             }`}
-            aria-label="Bookmark"
+            aria-label={isSaved ? 'Unsave' : 'Save'}
+            title={isSaved ? 'Remove from saved library' : 'Save to library'}
           >
             <Bookmark className={`w-5 h-5 ${isSaved ? 'fill-[#FFE042]' : ''}`} />
           </button>

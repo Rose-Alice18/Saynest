@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { WordEntry } from '../types';
 import { 
   Search, Volume2, Star, MoreVertical, SlidersHorizontal, 
-  BookOpen, Quote, Sparkles, Bookmark, History, Plus, Check, Clock, Trash2, Download
+  BookOpen, Quote, Sparkles, Bookmark, History, Plus, Check, Clock, Trash2, Download, X
 } from 'lucide-react';
 import { speakWord } from '../utils/speech';
 import { clickableProps } from '../utils/a11y';
@@ -373,7 +373,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             ) : (
               <div className="space-y-2.5">
                 {sortedHistory.map((item) => {
-                  const isSaved = words.some(w => w.word.toLowerCase() === item.word.toLowerCase());
+                  const savedEntry = words.find(w => w.word.toLowerCase() === item.word.toLowerCase());
                   const primaryDef = item.meanings[0]?.definitions[0]?.definition || '';
                   const partOfSpeech = item.meanings[0]?.partOfSpeech || item.type;
 
@@ -424,11 +424,19 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
 
                       {/* Right Action: Saved Badge or Add to Library */}
                       <div className="flex items-center gap-2 shrink-0 self-center" onClick={(e) => e.stopPropagation()}>
-                        {isSaved ? (
-                          <span className="py-1 px-2.5 rounded-full bg-emerald-50 text-emerald-800 text-[11px] font-semibold border border-emerald-200/80 flex items-center gap-1">
-                            <Check className="w-3 h-3" />
-                            <span>Saved</span>
-                          </span>
+                        {savedEntry ? (
+                          // Tap again to unsave; the word stays in Search History
+                          <button
+                            onClick={() => onDeleteWord(savedEntry.id)}
+                            className="group/saved py-1 px-2.5 rounded-full bg-emerald-50 hover:bg-rose-50 text-emerald-800 hover:text-rose-800 text-[11px] font-semibold border border-emerald-200/80 hover:border-rose-200 flex items-center gap-1 transition-colors"
+                            aria-label={`Unsave ${item.word}`}
+                            title="Remove from saved library (stays in Search History)"
+                          >
+                            <Check className="w-3 h-3 group-hover/saved:hidden" />
+                            <span className="group-hover/saved:hidden">Saved</span>
+                            <span className="hidden group-hover/saved:inline">Unsave</span>
+                            <X className="w-3 h-3" />
+                          </button>
                         ) : (
                           <button
                             onClick={() => onSaveFromHistory?.(item)}

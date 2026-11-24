@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { X, Search, Bookmark, Sparkles, BookOpen, FileText, Check, CheckSquare, Square, Loader2, Camera, ImageUp } from 'lucide-react';
 import { prepareImageForUpload } from '../utils/imageResize';
+import { useDictation, appendSpoken } from '../utils/useDictation';
+import { DictateButton, DictationStatus } from './DictateButton';
 
 type ExtractMeta = { definition?: string; partOfSpeech?: string; chapter?: string; page?: string };
 
@@ -186,6 +188,8 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
   const [isSelectAll, setIsSelectAll] = useState(false);
   const [selectedBatch, setSelectedBatch] = useState<string[]>([]);
   const [pastedText, setPastedText] = useState('');
+  // Read a passage aloud instead of typing it
+  const dictation = useDictation((spoken) => setPastedText((prev) => appendSpoken(prev, spoken)));
   const [activeThumbnail, setActiveThumbnail] = useState(0);
 
   const bookPages = [
@@ -555,20 +559,24 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-2">
-                  Paste excerpt, book passage, or article paragraph
+                  Paste, type or read out a passage
                 </label>
                 <textarea
                   value={pastedText}
                   onChange={(e) => setPastedText(e.target.value)}
-                  placeholder="Paste any English excerpt here..."
+                  placeholder="Paste or type a passage here, or tap “Speak it” and read it aloud…"
                   rows={6}
                   className="w-full p-4 bg-white rounded-2xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-[#FFE042] text-sm text-stone-800 leading-relaxed font-serif"
                 />
+                <div className="mt-2">
+                  <DictationStatus listening={dictation.listening} interim={dictation.interim} error={dictation.error} />
+                </div>
               </div>
 
-              <div className="flex justify-end">
+              <div className="flex items-center justify-between gap-2">
+                <DictateButton listening={dictation.listening} onToggle={dictation.toggle} />
                 <button
-                  onClick={handleExtract}
+                  onClick={() => { dictation.stop(); handleExtract(); }}
                   disabled={isExtracting || !pastedText.trim()}
                   className="py-2.5 px-4 bg-stone-900 hover:bg-stone-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2"
                 >

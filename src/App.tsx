@@ -320,6 +320,14 @@ export default function App() {
     showToast(`Removed "${target?.word || 'word'}" from saved library (kept in Search History)`);
   };
 
+  // Handler: Unsave the word that's open, without leaving its page
+  const handleUnsaveWord = (text: string) => {
+    const target = words.find((w) => w.word.toLowerCase() === text.toLowerCase());
+    if (!target) return;
+    setWords((prev) => prev.filter((w) => w.id !== target.id));
+    showToast(`Removed "${target.word}" from saved library (kept in Search History)`);
+  };
+
   // Handler: Re-save a word from Search History into Saved Library
   const handleSaveFromHistory = (entry: WordEntry) => {
     handleSaveWord(entry);
@@ -613,6 +621,7 @@ export default function App() {
               onOpenSaveModal={(w) => setSaveModalWord(w)}
               onOpenPractice={(w) => setPracticeModalWord(w)}
               onToggleStar={handleToggleStar}
+              onUnsave={() => handleUnsaveWord(activeWordDetail.word)}
               onSearchLookup={handleSearchLookup}
               isEnhancing={isEnhancingLookup}
               isSaved={words.some((w) => w.word.toLowerCase() === activeWordDetail.word.toLowerCase())}
@@ -775,6 +784,7 @@ export default function App() {
           collections={collections}
           onClose={() => setIsAddQuoteOpen(false)}
           onSaveQuote={handleSaveWord}
+          onCreateCollection={handleCreateCollection}
         />
       )}
 
