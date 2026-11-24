@@ -125,6 +125,8 @@ export default function App() {
   const [isBookSearchOpen, setIsBookSearchOpen] = useState(false);
   const [isLoadingLookup, setIsLoadingLookup] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // "Showing results for tired" when a search like "tird" was corrected
+  const [spellingFix, setSpellingFix] = useState<{ from: string; to: string } | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; run: () => void } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -236,12 +238,13 @@ export default function App() {
     relatedExpressions: ai.relatedExpressions,
   });
 
-  const handleSearchLookup = async (query: string) => {
+  const handleSearchLookup = async (query: string, options: { exact?: boolean } = {}) => {
     const seq = ++lookupSeq.current; // ignore results from an older search
     setIsLoadingLookup(true);
     setIsEnhancingLookup(false);
+    setSpellingFix(null);
     try {
-      const quick = await lookupWord(query, { quick: true });
+      const quick = await lookupWord(query, { quick: true, exact: options.exact });
       if (seq !== lookupSeq.current) return;
 
       if (quick.source === 'seed' || quick.source === 'ai') {
@@ -255,11 +258,13 @@ export default function App() {
         setIsEnhancingLookup(true);
       }
 
-      const full = await lookupWord(query);
+      const full = await lookupWord(query, { exact: options.exact });
       if (seq !== lookupSeq.current) return;
 
       if (quick.source === 'fallback') {
         // Nothing to show yet, so show whatever the full lookup found
+        // (possibly the correctly spelt word, if the search was misspelt)
+        setSpellingFix(full.spellingFix ?? null);
         showLookupResult(full.entry);
       } else if (full.source === 'ai') {
         const key = quick.entry.word.toLowerCase();
@@ -310,12 +315,25 @@ export default function App() {
   };
 
   // Handler: Toggle Star
+  // Stars mark favourites: they get their own Review deck and Library filter.
+  // A search result can have a different id from its saved copy, so match by text too.
   const handleToggleStar = (wordId: string) => {
-    setWords((prev) =>
-      prev.map((w) => (w.id === wordId ? { ...w, isStarred: !w.isStarred } : w))
-    );
-    if (activeWordDetail && activeWordDetail.id === wordId) {
-      setActiveWordDetail((prev) => (prev ? { ...prev, isStarred: !prev.isStarred } : null));
+    const detail = activeWordDetail && activeWordDetail.id === wordId ? activeWordDetail : null;
+    const saved =
+      words.find((w) => w.id === wordId) ||
+      (detail ? words.find((w) => w.word.toLowerCase() === detail.word.toLowerCase()) : undefined);
+
+    if (saved) {
+      const starred = !saved.isStarred;
+      setWords((prev) => prev.map((w) => (w.id === saved.id ? { ...w, isStarred: starred } : w)));
+      if (detail) setActiveWordDetail({ ...detail, isStarred: starred });
+      showToast(starred ? `Starred "${saved.word}". Practise starred words in Review → Custom` : `Unstarred "${saved.word}"`);
+    } else if (detail) {
+      // Starring a word you haven't saved yet saves it, so the star isn't lost
+      const entry = { ...detail, isStarred: true };
+      handleSaveWord(entry);
+      setActiveWordDetail(entry);
+      showToast(`Saved and starred "${detail.word}"`);
     }
   };
 
@@ -631,13 +649,21 @@ export default function App() {
         ) : activeWordDetail ? (
           <div className="flex-1 max-w-3xl mx-auto w-full px-4 sm:px-6 py-4 sm:py-6">
             <WordDetailScreen
-              word={activeWordDetail}
+              word={(() => {
+                // Show the saved copy's star, even if this result came from a fresh search
+                const savedCopy = words.find((w) => w.word.toLowerCase() === activeWordDetail.word.toLowerCase());
+                return savedCopy && !!savedCopy.isStarred !== !!activeWordDetail.isStarred
+                  ? { ...activeWordDetail, isStarred: savedCopy.isStarred }
+                  : activeWordDetail;
+              })()}
               onBack={handleBackFromWordDetail}
               onOpenSaveModal={(w) => setSaveModalWord(w)}
               onOpenPractice={(w) => setPracticeModalWord(w)}
               onToggleStar={handleToggleStar}
               onUnsave={() => handleUnsaveWord(activeWordDetail.word)}
               onSearchLookup={handleSearchLookup}
+              spellingFix={spellingFix && spellingFix.to.toLowerCase() === activeWordDetail.word.toLowerCase() ? spellingFix : null}
+              onSearchExact={(w) => handleSearchLookup(w, { exact: true })}
               isEnhancing={isEnhancingLookup}
               isSaved={words.some((w) => w.word.toLowerCase() === activeWordDetail.word.toLowerCase())}
             />

@@ -35,7 +35,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   onClearHistory
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<'All' | 'Words' | 'Phrases' | 'Transitions' | 'Quotes'>('All');
+  const [filterType, setFilterType] = useState<'All' | 'Starred' | 'Words' | 'Phrases' | 'Transitions' | 'Quotes'>('All');
   const [activeAudioWordId, setActiveAudioWordId] = useState<string | null>(null);
   const [historySort, setHistorySort] = useState<'recent' | 'az' | 'za'>('recent');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -64,6 +64,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
     if (!matchesSearch) return false;
 
     if (filterType === 'All') return true;
+    if (filterType === 'Starred') return !!w.isStarred;
     if (filterType === 'Words') return w.type === 'word';
     if (filterType === 'Phrases') return w.type === 'phrase';
     if (filterType === 'Transitions') return w.type === 'transition';
@@ -163,7 +164,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
           {activeView === 'saved' && (
             <button
               onClick={() => {
-                const cycle: ('All' | 'Words' | 'Phrases' | 'Transitions' | 'Quotes')[] = ['All', 'Words', 'Phrases', 'Transitions', 'Quotes'];
+                const cycle: ('All' | 'Starred' | 'Words' | 'Phrases' | 'Transitions' | 'Quotes')[] = ['All', 'Starred', 'Words', 'Phrases', 'Transitions', 'Quotes'];
                 const nextIndex = (cycle.indexOf(filterType) + 1) % cycle.length;
                 setFilterType(cycle[nextIndex]);
               }}
@@ -179,7 +180,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
         {activeView === 'saved' && (
           <div className="flex items-center justify-between gap-2 pb-1">
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-              {(['All', 'Words', 'Phrases', 'Transitions', 'Quotes'] as const).map((tab) => {
+              {(['All', 'Starred', 'Words', 'Phrases', 'Transitions', 'Quotes'] as const).map((tab) => {
                 const isActive = filterType === tab;
                 return (
                   <button

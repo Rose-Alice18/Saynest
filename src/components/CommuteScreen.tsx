@@ -232,8 +232,12 @@ export const CommuteScreen: React.FC<CommuteScreenProps> = ({ words, onBack }) =
             <div className={`flex items-center justify-center gap-2 text-stone-600 text-xs mt-1 ${
               !showText ? 'blur-sm select-none' : ''
             }`}>
-              <span className="font-mono">{currentItem.phonetic || currentItem.accents[0]?.ipa}</span>
-              <span>·</span>
+              {(currentItem.phonetic || currentItem.accents[0]?.ipa) && (
+                <>
+                  <span className="font-mono">{currentItem.phonetic || currentItem.accents[0]?.ipa}</span>
+                  <span>·</span>
+                </>
+              )}
               <span className="font-semibold text-stone-700">British English</span>
             </div>
           </div>

@@ -11,11 +11,13 @@ export type LookupSource = 'seed' | 'ai' | 'dictionary' | 'fallback';
 export interface LookupResult {
   entry: WordEntry;
   source: LookupSource;
+  /** Set when the search was misspelt and the intended word was looked up instead */
+  spellingFix?: { from: string; to: string };
 }
 
 // With quick: true the server skips the AI, so a dictionary result comes back
 // in about a second. Call again without it to get the richer AI version.
-export async function lookupWord(query: string, options: { quick?: boolean } = {}): Promise<LookupResult> {
+export async function lookupWord(query: string, options: { quick?: boolean; exact?: boolean } = {}): Promise<LookupResult> {
   const cleanWord = query.trim().toLowerCase();
 
   // 1. Check if it matches our pre-seeded curated entries first
@@ -28,14 +30,15 @@ export async function lookupWord(query: string, options: { quick?: boolean } = {
 
   // 2. Try server-side API lookup (/api/lookup)
   try {
-    const quickParam = options.quick ? '&quick=1' : '';
+    const quickParam = (options.quick ? '&quick=1' : '') + (options.exact ? '&exact=1' : '');
     const res = await fetch(`/api/lookup?word=${encodeURIComponent(cleanWord)}${quickParam}`);
     if (res.ok) {
       const data = await res.json();
       if (data && data.word) {
         const source: LookupSource =
           data.source === 'ai' || data.source === 'dictionary' || data.source === 'fallback' ? data.source : 'ai';
-        return { source, entry: {
+        const spellingFix = data.spellingFix?.from && data.spellingFix?.to ? data.spellingFix : undefined;
+        return { source, spellingFix, entry: {
           id: `lookup-${Date.now()}`,
           word: data.word,
           type: data.type || 'word',

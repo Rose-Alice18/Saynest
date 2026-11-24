@@ -18,6 +18,10 @@ interface WordDetailScreenProps {
   onUnsave?: () => void;
   onSearchLookup?: (word: string) => void;
   isSaved?: boolean;
+  /** Set when the search was misspelt and this is the intended word */
+  spellingFix?: { from: string; to: string } | null;
+  /** Look up exactly what was typed, without correcting it */
+  onSearchExact?: (word: string) => void;
   /** True while AI details are still loading for this word */
   isEnhancing?: boolean;
 }
@@ -31,6 +35,8 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
   onUnsave,
   onSearchLookup,
   isSaved = false,
+  spellingFix = null,
+  onSearchExact,
   isEnhancing = false
 }) => {
   const [selectedAccent, setSelectedAccent] = useState<AccentType>('British');
@@ -105,7 +111,8 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
               word.isStarred ? 'text-amber-500 bg-amber-50' : 'text-stone-500 hover:text-stone-800 hover:bg-stone-100'
             }`}
-            aria-label="Star word"
+            aria-label={word.isStarred ? 'Unstar' : 'Star'}
+            title={word.isStarred ? 'Starred: in your Starred review deck. Tap to unstar' : 'Star as a favourite to practise it in Review → Custom → Starred'}
           >
             <Star className={`w-5 h-5 ${word.isStarred ? 'fill-amber-400' : ''}`} />
           </button>
@@ -159,6 +166,22 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
               </button>
             )}
           </form>
+        </div>
+      )}
+
+      {/* The search looked misspelt, so the intended word is shown */}
+      {spellingFix && (
+        <div role="status" className="mx-6 mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-950">
+          Showing results for <strong>{spellingFix.to}</strong>.{' '}
+          {onSearchExact && (
+            <button
+              type="button"
+              onClick={() => onSearchExact(spellingFix.from)}
+              className="underline font-semibold hover:text-stone-950"
+            >
+              Search for “{spellingFix.from}” instead
+            </button>
+          )}
         </div>
       )}
 

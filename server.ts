@@ -235,15 +235,24 @@ app.get('/api/lookup', async (req, res) => {
   // ?quick=1 skips the AI so the app can show the dictionary result in about
   // a second, then ask again without quick=1 for the richer AI version.
   const quick = req.query.quick === '1';
+  // ?exact=1 means "I really meant this spelling", so don't correct it
+  const exact = req.query.exact === '1';
+  const notInDictionary = !dictData.rawDefinitions || dictData.rawDefinitions.length === 0;
 
   // If an AI provider is configured, use it for deep nuanced linguistics
   if (!quick && aiProviders.length > 0) {
     try {
       const prompt = `You are the master lexicographer behind the SayNest pronunciation and vocabulary app.
 Provide a rich, precise JSON analysis for the word or phrase: "${word}".
-Return ONLY valid JSON with this exact schema:
+${notInDictionary && !exact ? `The standard dictionary has NO entry for "${word}", so it may be misspelt.
+If it is a misspelling or typo of a real English word or phrase (e.g. "tird" -> "tired", "recieve" -> "receive", "definately" -> "definitely"),
+analyse the INTENDED word instead, put it in "word", and set "spellingFix" to {"from": "${word}", "to": "<intended word>"}.
+Only keep "${word}" as typed if it is a genuine word or phrase listed in Oxford, Cambridge or Merriam-Webster, or a well-known idiom or slang term; then set "spellingFix" to null.
+Never invent a meaning for a word that doesn't exist.
+` : ''}Return ONLY valid JSON with this exact schema:
 {
   "word": "${word}",
+  "spellingFix": null,
   "type": "word" | "transition" | "phrase",
   "phonetic": "Primary IPA transcription e.g. /'mɪm.ɪk/ or /ˌæk.wi'es/",
   "syllables": "Syllable breakdown e.g. MI-mik or ak-wee-ES",
@@ -291,6 +300,16 @@ Return ONLY valid JSON with this exact schema:
 
       const parsed = await generateJson(prompt);
       if (parsed) {
+        // Keep a correction only if it really changed the word
+        const fixedTo = typeof parsed.spellingFix?.to === 'string' ? parsed.spellingFix.to.trim() : '';
+        if (!fixedTo || fixedTo.toLowerCase() === word.toLowerCase()) {
+          parsed.spellingFix = null;
+        } else {
+          parsed.spellingFix = { from: word, to: fixedTo };
+          parsed.word = fixedTo;
+          // Recordings belong to the corrected word, not the typo
+          Object.assign(dictData, await fetchDictionaryAudio(fixedTo));
+        }
         // Attach audio files if found
         if (parsed.accents) {
           for (const acc of parsed.accents) {
