@@ -736,8 +736,12 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                     Session Complete!
                   </h2>
                   <p className="text-xs text-stone-600 max-w-xs mx-auto">
-                    You reviewed {reviewDeck.length} {reviewDeck.length === 1 ? 'word' : 'words'}. Words you knew will come
-                    back in a few days; ones you didn't know come back in 10 minutes.
+                    {(() => {
+                      const rated = scoreCounts.again + scoreCounts.almost + scoreCounts.gotIt;
+                      const skipped = Math.max(0, reviewDeck.length - rated);
+                      return `You rated ${rated} ${rated === 1 ? 'word' : 'words'}${skipped ? ` and skipped ${skipped}` : ''}. `;
+                    })()}
+                    Words you knew come back in a few days; ones you didn't know come back in 10 minutes.
                   </p>
                   <div className="grid grid-cols-3 gap-2 pt-2">
                     <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl">

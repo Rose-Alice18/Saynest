@@ -399,9 +399,15 @@ export default function App() {
     w: string,
     context: string,
     type?: 'word' | 'phrase' | 'transition',
-    meta: { definition?: string; partOfSpeech?: string; chapter?: string; page?: string } = {}
+    meta: { definition?: string; partOfSpeech?: string; chapter?: string; page?: string; collectionId?: string } = {}
   ) => {
-    const targetCol = collections.find(c => c.id === selectedCollectionId) || collections[0];
+    // The scan screen says where to save; '' means no collection.
+    // Without a choice, use the book being read now (the first collection).
+    const targetCol =
+      meta.collectionId === undefined
+        ? collections[0]
+        : collections.find((c) => c.id === meta.collectionId);
+    const fromBook = !!targetCol;
 
     const existingWord = words.find(item => item.word.toLowerCase() === w.toLowerCase());
     if (existingWord) {
@@ -410,7 +416,7 @@ export default function App() {
         collectionId: targetCol?.id,
         chapter: existingWord.chapter || (meta.chapter ? `Chapter ${meta.chapter}` : undefined),
         source: existingWord.source || {
-          type: 'Book',
+          type: fromBook ? 'Book' : 'Other',
           title: targetCol?.title,
           author: targetCol?.author,
           chapter: meta.chapter,
@@ -451,13 +457,13 @@ export default function App() {
       chapter: meta.chapter ? `Chapter ${meta.chapter}` : undefined,
       collectionId: targetCol?.id,
       source: {
-        type: 'Book',
+        type: fromBook ? 'Book' : 'Other',
         title: targetCol?.title,
         author: targetCol?.author,
         chapter: meta.chapter,
         page: meta.page
       },
-      tags: [entryType, 'book-extract'],
+      tags: fromBook ? [entryType, 'book-extract'] : [entryType],
       isStarred: false,
       reviewStatus: {
         dueForReview: true,
@@ -467,7 +473,7 @@ export default function App() {
     };
 
     handleSaveWord(newEntry);
-    showToast(`Saved "${w}" to ${targetCol?.title || 'your nest'}`);
+    showToast(`Saved "${w}" to ${targetCol ? targetCol.title : 'your library'}`);
   };
 
   // ---------------------------------------------------------------------------
@@ -786,6 +792,8 @@ export default function App() {
           <ScanPageModal
             initialTab={scanPageTab}
             onClose={() => setScanModal('closed')}
+            collections={collections}
+            onCreateCollection={(title) => handleCreateCollection(title)}
             onDefineWord={(w) => {
               setNavigationSource({ tab: currentTab, collectionId: selectedCollectionId, fromScanPage: true });
               setScanModal('hidden');

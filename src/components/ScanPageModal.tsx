@@ -1,16 +1,28 @@
 import React, { useState } from 'react';
+import { Collection } from '../types';
 import { X, Search, Bookmark, Sparkles, BookOpen, FileText, Check, CheckSquare, Square, Loader2, Camera, ImageUp } from 'lucide-react';
 import { prepareImageForUpload } from '../utils/imageResize';
 import { useDictation, appendSpoken } from '../utils/useDictation';
 import { DictateButton, DictationStatus } from './DictateButton';
 import { CameraCapture } from './CameraCapture';
 
-type ExtractMeta = { definition?: string; partOfSpeech?: string; chapter?: string; page?: string };
+type ExtractMeta = {
+  definition?: string;
+  partOfSpeech?: string;
+  chapter?: string;
+  page?: string;
+  /** Collection to save into; '' means no collection */
+  collectionId?: string;
+};
 
 interface ScanPageModalProps {
   /** Which tab to open on: the sample page, or pasting your own text */
   initialTab?: 'scan' | 'paste';
   onClose: () => void;
+  /** First one is the book being read now */
+  collections: Collection[];
+  /** Creates a collection and returns its id */
+  onCreateCollection: (title: string) => string;
   onDefineWord: (word: string) => void;
   onSaveExtractedWord: (
     word: string,
@@ -92,6 +104,8 @@ export const PAGE_DISCOVERIES: PageDiscovery[] = [
 export const ScanPageModal: React.FC<ScanPageModalProps> = ({
   initialTab = 'scan',
   onClose,
+  collections,
+  onCreateCollection,
   onDefineWord,
   onSaveExtractedWord,
 }) => {
@@ -109,6 +123,12 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
   // Photo tab
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isReadingPhoto, setIsReadingPhoto] = useState(false);
+  // Where found words are saved. A photo of your book goes to the book you're
+  // reading; pasted text could be from anywhere, so it starts with no collection.
+  const readingNow = collections[0];
+  const [saveTarget, setSaveTarget] = useState<string>(initialTab === 'paste' ? '' : readingNow?.id || '');
+  const [saveTargetChosen, setSaveTargetChosen] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState<string | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   // Phones and tablets have a touch screen as their main pointer
   const [isTouchDevice] = useState(
@@ -139,6 +159,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
       const items: ExtractedWord[] = data.extractedWords || [];
       setExtracted(items);
       setPhotoMeta({ chapter: data.chapter, page: data.pageNumber });
+      if (!saveTargetChosen) setSaveTarget(readingNow?.id || '');
       // Put what we read into the paste box, so misread words can be fixed
       if (data.pageText) setPastedText(data.pageText);
       if (!data.pageText) {
@@ -160,6 +181,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
     setExtracted(null);
     setSavedExtracted([]);
     setPhotoMeta({}); // edited text isn't tied to the photo's page any more
+    if (!saveTargetChosen) setSaveTarget('');
     try {
       const res = await fetch('/api/scan', {
         method: 'POST',
@@ -184,6 +206,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
       partOfSpeech: item.partOfSpeech,
       chapter: photoMeta.chapter,
       page: photoMeta.page,
+      collectionId: saveTarget,
     });
     setSavedExtracted((prev) => [...prev, item.word]);
   };
@@ -224,7 +247,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
   };
 
   // The sample page is page 27, chapter 3, so its words carry that location
-  const samplePageMeta: ExtractMeta = { chapter: '3', page: '27' };
+  const samplePageMeta: ExtractMeta = { chapter: '3', page: '27', collectionId: readingNow?.id || '' };
 
   const handleSaveCurrent = (type: 'word' | 'phrase' | 'transition' = 'word') => {
     if (isSelectAll) {
@@ -251,6 +274,56 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
             {photoMeta.chapter && photoMeta.page && ', '}
             {photoMeta.page && `page ${photoMeta.page}`}
           </span>
+        )}
+      </div>
+      {/* Where Save puts the words */}
+      <div className="flex flex-wrap items-center gap-2 p-2.5 bg-[#FAF6EC] rounded-xl border border-stone-200/80">
+        <label htmlFor="scan-save-target" className="text-[11px] font-bold text-stone-600">Save to</label>
+        {newCollectionName === null ? (
+          <select
+            id="scan-save-target"
+            value={saveTarget}
+            onChange={(e) => {
+              if (e.target.value === '__new__') {
+                setNewCollectionName('');
+                return;
+              }
+              setSaveTarget(e.target.value);
+              setSaveTargetChosen(true);
+            }}
+            className="flex-1 min-w-0 p-1.5 bg-white rounded-lg border border-stone-200 text-xs font-semibold text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FFE042]"
+          >
+            <option value="">No collection (just my library)</option>
+            {collections.map((c, i) => (
+              <option key={c.id} value={c.id}>
+                {c.title}{i === 0 ? ' (reading now)' : ''}
+              </option>
+            ))}
+            <option value="__new__">+ New collection…</option>
+          </select>
+        ) : (
+          <form
+            className="flex flex-1 min-w-0 items-center gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const name = newCollectionName.trim();
+              if (!name) return;
+              setSaveTarget(onCreateCollection(name));
+              setSaveTargetChosen(true);
+              setNewCollectionName(null);
+            }}
+          >
+            <input
+              autoFocus
+              value={newCollectionName}
+              onChange={(e) => setNewCollectionName(e.target.value)}
+              placeholder="Name, e.g. Everyday English"
+              aria-label="New collection name"
+              className="flex-1 min-w-0 p-1.5 bg-white rounded-lg border border-stone-200 text-xs font-semibold text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FFE042]"
+            />
+            <button type="submit" className="py-1.5 px-2.5 bg-stone-900 text-white rounded-lg text-[11px] font-bold">Create</button>
+            <button type="button" onClick={() => setNewCollectionName(null)} className="py-1.5 px-2 text-[11px] font-semibold text-stone-600">Cancel</button>
+          </form>
         )}
       </div>
       {extracted.map((item) => {
