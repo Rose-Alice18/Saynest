@@ -10,6 +10,18 @@ dotenv.config({ path: ['.env.local', '.env'], quiet: true });
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 
+// Live, send plain http:// visits to https:// (Heroku's router says which one
+// was used in x-forwarded-proto). Also needed for sign-in and the microphone,
+// which browsers only allow on secure pages.
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    if (req.headers['x-forwarded-proto'] === 'http') {
+      return res.redirect(301, `https://${req.headers.host}${req.originalUrl}`);
+    }
+    next();
+  });
+}
+
 // Page photos are sent as base64 JSON, so that one route allows a larger body.
 // Everything else keeps Express's small default.
 const smallJson = express.json();
