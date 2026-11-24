@@ -125,11 +125,28 @@ export default function App() {
   const [isBookSearchOpen, setIsBookSearchOpen] = useState(false);
   const [isLoadingLookup, setIsLoadingLookup] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastAction, setToastAction] = useState<{ label: string; run: () => void } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = (message: string) => {
+  // A message at the bottom of the screen; with an action (like Undo) it stays a bit longer
+  const showToast = (message: string, action?: { label: string; run: () => void }) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
     setToastMessage(message);
-    setTimeout(() => setToastMessage(null), 3000);
+    setToastAction(action ?? null);
+    toastTimer.current = setTimeout(() => {
+      setToastMessage(null);
+      setToastAction(null);
+    }, action ? 6000 : 3000);
   };
+
+  // Put an unsaved word back exactly as it was (notes, collection, review progress)
+  const undoUnsave = (entry: WordEntry) => ({
+    label: 'Undo',
+    run: () => {
+      setWords((prev) => (prev.some((w) => w.id === entry.id) ? prev : [entry, ...prev]));
+      showToast(`"${entry.word}" is back in your saved library`);
+    }
+  });
 
   // Handler: Select or Add Book with cover
   const handleSelectOrAddBook = (book: {
@@ -317,7 +334,7 @@ export default function App() {
     if (activeWordDetail && activeWordDetail.id === wordId) {
       setActiveWordDetail(null);
     }
-    showToast(`Removed "${target?.word || 'word'}" from saved library (kept in Search History)`);
+    showToast(`Removed "${target?.word || 'word'}" from saved`, target ? undoUnsave(target) : undefined);
   };
 
   // Handler: Unsave the word that's open, without leaving its page
@@ -325,7 +342,7 @@ export default function App() {
     const target = words.find((w) => w.word.toLowerCase() === text.toLowerCase());
     if (!target) return;
     setWords((prev) => prev.filter((w) => w.id !== target.id));
-    showToast(`Removed "${target.word}" from saved library (kept in Search History)`);
+    showToast(`Removed "${target.word}" from saved`, undoUnsave(target));
   };
 
   // Handler: Re-save a word from Search History into Saved Library
@@ -814,9 +831,22 @@ export default function App() {
 
       {/* Global Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 py-2.5 px-5 bg-stone-900 text-white rounded-full text-xs font-semibold shadow-xl animate-in fade-in flex items-center gap-2">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-2rem)] py-2.5 px-5 bg-stone-900 text-white rounded-full text-xs font-semibold shadow-xl animate-in fade-in flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-[#FFE042]"></span>
           <span>{toastMessage}</span>
+          {toastAction && (
+            <button
+              type="button"
+              onClick={() => {
+                const action = toastAction;
+                setToastAction(null);
+                action.run();
+              }}
+              className="ml-1 py-1 px-3 rounded-full bg-[#FFE042] text-stone-900 font-bold hover:bg-[#F7D836]"
+            >
+              {toastAction.label}
+            </button>
+          )}
         </div>
       )}
     </div>

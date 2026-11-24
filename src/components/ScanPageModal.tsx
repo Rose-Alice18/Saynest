@@ -3,6 +3,7 @@ import { X, Search, Bookmark, Sparkles, BookOpen, FileText, Check, CheckSquare, 
 import { prepareImageForUpload } from '../utils/imageResize';
 import { useDictation, appendSpoken } from '../utils/useDictation';
 import { DictateButton, DictationStatus } from './DictateButton';
+import { CameraCapture } from './CameraCapture';
 
 type ExtractMeta = { definition?: string; partOfSpeech?: string; chapter?: string; page?: string };
 
@@ -108,6 +109,11 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
   // Photo tab
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isReadingPhoto, setIsReadingPhoto] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  // Phones and tablets have a touch screen as their main pointer
+  const [isTouchDevice] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
+  );
   const [photoError, setPhotoError] = useState<string | null>(null);
   // Chapter / page printed on the scanned page, saved with each word
   const [photoMeta, setPhotoMeta] = useState<{ chapter?: string; page?: string }>({});
@@ -357,21 +363,40 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
         <div className="p-6 overflow-y-auto space-y-5">
           {activeTab === 'photo' && (
             <div className="space-y-4">
-              {/* capture="environment" opens the back camera on phones;
-                  the second input lets people pick an existing photo */}
+              {/* On phones, capture="environment" opens the back camera app.
+                  Laptops ignore it and show a file picker, so they get a
+                  live webcam view instead. The second input picks an existing photo. */}
+              {showCamera ? (
+                <CameraCapture
+                  onCapture={(file) => { setShowCamera(false); handlePhoto(file); }}
+                  onCancel={() => setShowCamera(false)}
+                />
+              ) : (
               <div className="grid grid-cols-2 gap-2">
-                <label className="cursor-pointer p-4 bg-[#FFE042] hover:bg-[#F7D836] rounded-2xl flex flex-col items-center gap-1.5 text-stone-900 transition-transform active:scale-95">
-                  <Camera className="w-6 h-6" />
-                  <span className="text-xs font-bold">Take a photo</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="sr-only"
+                {isTouchDevice ? (
+                  <label className="cursor-pointer p-4 bg-[#FFE042] hover:bg-[#F7D836] rounded-2xl flex flex-col items-center gap-1.5 text-stone-900 transition-transform active:scale-95">
+                    <Camera className="w-6 h-6" />
+                    <span className="text-xs font-bold">Take a photo</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="sr-only"
+                      disabled={isReadingPhoto}
+                      onChange={(e) => { handlePhoto(e.target.files?.[0]); e.target.value = ''; }}
+                    />
+                  </label>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowCamera(true)}
                     disabled={isReadingPhoto}
-                    onChange={(e) => { handlePhoto(e.target.files?.[0]); e.target.value = ''; }}
-                  />
-                </label>
+                    className="p-4 bg-[#FFE042] hover:bg-[#F7D836] disabled:opacity-50 rounded-2xl flex flex-col items-center gap-1.5 text-stone-900 transition-transform active:scale-95"
+                  >
+                    <Camera className="w-6 h-6" />
+                    <span className="text-xs font-bold">Take a photo</span>
+                  </button>
+                )}
                 <label className="cursor-pointer p-4 bg-white hover:bg-stone-50 border border-stone-200 rounded-2xl flex flex-col items-center gap-1.5 text-stone-900 transition-transform active:scale-95">
                   <ImageUp className="w-6 h-6" />
                   <span className="text-xs font-bold">Choose a photo</span>
@@ -384,8 +409,9 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
                   />
                 </label>
               </div>
+              )}
 
-              {!photoPreview && !isReadingPhoto && (
+              {!photoPreview && !isReadingPhoto && !showCamera && (
                 <p className="text-[11px] text-stone-500 text-center leading-relaxed">
                   Snap the page you're reading. Keep it flat, well lit and filling the frame. We'll read it and pick out
                   words worth learning.

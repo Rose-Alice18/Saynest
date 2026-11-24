@@ -75,3 +75,13 @@ export function dateGroup(iso: string | undefined, now = new Date()): 'Today' | 
   if (d.getTime() >= startOfToday - DAY) return 'Yesterday';
   return 'Earlier';
 }
+
+/** When a word would come back if rated this way, e.g. "back in 3 days" */
+export function nextReviewLabel(word: WordEntry, rating: ReviewRating, now = Date.now()): string {
+  const next = scheduleReview(word, rating, now).reviewStatus;
+  if (!next?.nextReviewDate) return '';
+  const minutes = Math.round((new Date(next.nextReviewDate).getTime() - now) / 60000);
+  if (minutes < 60) return `back in ${minutes} min`;
+  const days = Math.round(minutes / 1440);
+  return days <= 1 ? 'back tomorrow' : `back in ${days} days`;
+}

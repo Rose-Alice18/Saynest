@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { WordEntry } from '../types';
-import { dueWords, estimateMinutes, ReviewRating } from '../utils/review';
+import { dueWords, estimateMinutes, ReviewRating, nextReviewLabel } from '../utils/review';
 import { 
   Volume2, Star, Headphones, Eye, RotateCcw, Check, 
   Sparkles, ArrowRight, ArrowLeft, Settings, Filter, Sliders, 
@@ -151,7 +151,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
     }
   }, [currentIndex, autoPlayAudio, practiceMode, playbackSpeed]);
 
-  // Desktop Keyboard Shortcuts (1 = Again, 2 = Almost, 3 = Got it, Space = Reveal / Next, Arrows = Nav, R = Audio, H = Hint)
+  // Desktop Keyboard Shortcuts (1 = No, 2 = Partly, 3 = Yes (shows the answer first if hidden), Space = Reveal / Next, Arrows = Nav, R = Audio, H = Hint)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if user is currently typing in an input, textarea, or contentEditable element
@@ -167,7 +167,11 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
 
       if (isCustomConfiguring || isCompleted) return;
 
-      if (e.key === '1') {
+      const mustRevealFirst = (practiceMode === 'flashcard' || practiceMode === 'listening') && !isAnswerRevealed;
+      if (['1', '2', '3'].includes(e.key) && mustRevealFirst) {
+        e.preventDefault();
+        setIsAnswerRevealed(true);
+      } else if (e.key === '1') {
         e.preventDefault();
         handleRate('again');
       } else if (e.key === '2') {
@@ -178,7 +182,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
         handleRate('gotIt');
       } else if (e.code === 'Space') {
         e.preventDefault();
-        if (practiceMode === 'flashcard' && !isAnswerRevealed) {
+        if (mustRevealFirst) {
           setIsAnswerRevealed(true);
         } else {
           // Advance to next card or complete
@@ -733,19 +737,19 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                   </h2>
                   <p className="text-xs text-stone-600 max-w-xs mx-auto">
                     You reviewed {reviewDeck.length} {reviewDeck.length === 1 ? 'word' : 'words'}. Words you knew will come
-                    back in a few days; ones marked "Again" come back soon.
+                    back in a few days; ones you didn't know come back in 10 minutes.
                   </p>
                   <div className="grid grid-cols-3 gap-2 pt-2">
                     <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl">
-                      <div className="text-xs text-rose-600 font-bold">Again</div>
+                      <div className="text-xs text-rose-600 font-bold">Didn't know</div>
                       <div className="text-lg font-bold text-stone-900 font-mono">{scoreCounts.again}</div>
                     </div>
                     <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl">
-                      <div className="text-xs text-amber-600 font-bold">Almost</div>
+                      <div className="text-xs text-amber-600 font-bold">Partly</div>
                       <div className="text-lg font-bold text-stone-900 font-mono">{scoreCounts.almost}</div>
                     </div>
                     <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl">
-                      <div className="text-xs text-emerald-600 font-bold">Got it</div>
+                      <div className="text-xs text-emerald-600 font-bold">Knew it</div>
                       <div className="text-lg font-bold text-stone-900 font-mono">{scoreCounts.gotIt}</div>
                     </div>
                   </div>
@@ -938,100 +942,74 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                       {/* Expressive Bird Mascot sitting happily */}
                       <SayNestBird variant="flashcard" size={82} />
 
-                      {/* Hint pill button */}
-                      <div className="w-full flex justify-center">
-                        {!showHint ? (
-                          <button
-                            type="button"
-                            onClick={() => setShowHint(true)}
-                            className="py-1.5 px-4 bg-white/90 hover:bg-white rounded-full text-xs font-medium text-stone-600 border border-stone-200 transition-colors flex items-center gap-1.5"
-                          >
-                            <span>Show hint (first letter: "{currentCard.meanings[0]?.definitions[0]?.definition.slice(0, 1)}...")</span>
-                            <span className="hidden sm:inline-block font-mono text-[9px] text-stone-400 bg-stone-100 px-1 rounded">H</span>
-                          </button>
-                        ) : (
-                          <div className="p-2 px-4 bg-amber-50/90 rounded-full text-xs text-amber-900 font-medium flex items-center gap-1.5 border border-amber-200/60">
-                            <span className="font-bold">Hint:</span>
-                            <span>Starts with "{currentCard.meanings[0]?.definitions[0]?.definition.slice(0, 10)}..."</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Rating Buttons Always Visible matching Figma Screen 6 (image_0de423d9.png) */}
-                      <div className="w-full pt-2">
-                        <div className="grid grid-cols-3 gap-2.5">
-                          <button
-                            type="button"
-                            onClick={() => handleRate('again')}
-                            className="py-3 px-2 bg-[#FFAAA6] hover:bg-[#FF9691] text-stone-900 font-bold text-xs rounded-2xl flex flex-col items-center justify-center transition-transform active:scale-95 shadow-xs relative"
-                          >
-                            <RotateCcw className="w-4 h-4 mb-1" />
-                            <span>Again</span>
-                            <span className="hidden sm:inline-block font-mono text-[9px] text-stone-700 bg-white/70 px-1.5 py-0.2 rounded mt-1">1</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleRate('almost')}
-                            className="py-3 px-2 bg-[#F3E2C4] hover:bg-[#EBD2AB] text-stone-900 font-bold text-xs rounded-2xl flex flex-col items-center justify-center transition-transform active:scale-95 shadow-xs relative"
-                          >
-                            <span className="text-base leading-none mb-1">~</span>
-                            <span>Almost</span>
-                            <span className="hidden sm:inline-block font-mono text-[9px] text-stone-700 bg-white/70 px-1.5 py-0.2 rounded mt-1">2</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleRate('gotIt')}
-                            className="py-3 px-2 bg-[#B7E4C7] hover:bg-[#9CD7B1] text-stone-900 font-bold text-xs rounded-2xl flex flex-col items-center justify-center transition-transform active:scale-95 shadow-xs relative"
-                          >
-                            <Check className="w-4 h-4 mb-1" />
-                            <span>Got it</span>
-                            <span className="hidden sm:inline-block font-mono text-[9px] text-stone-700 bg-white/70 px-1.5 py-0.2 rounded mt-1">3</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Collapsible Example & Meaning Block matching Figma Screen 6 */}
-                      <div className="w-full pt-1 space-y-2">
-                        <div className="bg-white/80 rounded-2xl border border-stone-200/90 p-3.5 text-left transition-all">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold text-stone-800">
-                              {isAnswerRevealed ? 'Definition & example sentence' : 'Example sentence (after answer)'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setIsAnswerRevealed(!isAnswerRevealed)}
-                              className="w-7 h-7 rounded-lg bg-stone-100 hover:bg-stone-200 flex items-center justify-center text-stone-600 transition-colors"
-                              title={isAnswerRevealed ? 'Hide details' : 'Reveal details'}
-                            >
-                              <Eye className={`w-3.5 h-3.5 ${isAnswerRevealed ? 'text-amber-600' : ''}`} />
-                            </button>
-                          </div>
-
-                          {isAnswerRevealed ? (
-                            <div className="mt-3 pt-2 border-t border-stone-100 space-y-2 animate-in fade-in">
-                              <div className="text-xs text-stone-900 font-medium leading-relaxed">
-                                <span className="font-bold text-stone-400 uppercase text-[10px] mr-1 block">Meaning:</span>
-                                {currentCard.meanings[0]?.definitions[0]?.definition}
+                      {!isAnswerRevealed ? (
+                        /* Step 1: try to remember, then reveal */
+                        <div className="w-full space-y-2.5 pt-1">
+                          {currentCard.meanings[0]?.definitions[0]?.example && (
+                            showHint ? (
+                              <div className="text-xs font-serif italic text-stone-700 bg-white/80 p-3 rounded-2xl border border-stone-200/90 text-left">
+                                <span className="font-sans font-bold not-italic text-[10px] uppercase tracking-wider text-stone-400 block mb-1">Clue: used in a sentence</span>
+                                "{currentCard.meanings[0].definitions[0].example}"
                               </div>
-                              {currentCard.meanings[0]?.definitions[0]?.example && (
-                                <div className="text-xs font-serif italic text-stone-700 bg-[#FAF6EC] p-2.5 rounded-xl border border-stone-200/70">
-                                  <span className="font-sans font-bold not-italic mr-1 text-stone-400">&gt;</span>
-                                  "{currentCard.meanings[0]?.definitions[0]?.example}"
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            currentCard.meanings[0]?.definitions[0]?.example && (
-                              <div className="text-xs font-serif italic text-stone-500 mt-2 line-clamp-1">
-                                <span className="font-sans font-bold not-italic mr-1 text-stone-400">&gt;</span>
-                                "{currentCard.meanings[0]?.definitions[0]?.example.slice(0, 45)}..."
-                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setShowHint(true)}
+                                className="py-1.5 px-4 bg-white/90 hover:bg-white rounded-full text-xs font-medium text-stone-600 border border-stone-200 transition-colors inline-flex items-center gap-1.5"
+                              >
+                                <span>Need a clue? See it in a sentence</span>
+                                <span className="hidden sm:inline-block font-mono text-[9px] text-stone-400 bg-stone-100 px-1 rounded">H</span>
+                              </button>
                             )
                           )}
+                          <button
+                            type="button"
+                            onClick={() => setIsAnswerRevealed(true)}
+                            className="w-full py-3.5 bg-stone-900 hover:bg-stone-800 text-white font-bold text-sm rounded-2xl flex items-center justify-center gap-2 transition-transform active:scale-[0.98]"
+                          >
+                            <Eye className="w-4 h-4 text-[#FFE042]" />
+                            <span>{practiceMode === 'listening' ? 'Show word and meaning' : 'Show meaning'}</span>
+                            <span className="hidden sm:inline-block font-mono text-[9px] text-stone-300 bg-white/10 px-1.5 rounded">Space</span>
+                          </button>
+                          <p className="text-[11px] text-stone-500">Say the meaning in your head first, then check.</p>
                         </div>
-                      </div>
+                      ) : (
+                        /* Step 2: see the answer, then say how well you knew it */
+                        <div className="w-full space-y-3 pt-1 animate-in fade-in">
+                          <div className="bg-white/80 rounded-2xl border border-stone-200/90 p-3.5 text-left space-y-2">
+                            <div className="text-sm text-stone-900 font-medium leading-relaxed">
+                              <span className="font-bold text-stone-400 uppercase text-[10px] tracking-wider block mb-0.5">Meaning</span>
+                              {currentCard.meanings[0]?.definitions[0]?.definition}
+                            </div>
+                            {currentCard.meanings[0]?.definitions[0]?.example && (
+                              <div className="text-xs font-serif italic text-stone-700 bg-[#FAF6EC] p-2.5 rounded-xl border border-stone-200/70">
+                                "{currentCard.meanings[0]?.definitions[0]?.example}"
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="text-xs font-semibold text-stone-700">Did you know it?</div>
+                          <div className="grid grid-cols-3 gap-2.5">
+                            {([
+                              { rating: 'again', label: 'No', icon: <RotateCcw className="w-4 h-4 mb-1" />, cls: 'bg-[#FFAAA6] hover:bg-[#FF9691]', key: '1' },
+                              { rating: 'almost', label: 'Partly', icon: <span className="text-base leading-none mb-1">~</span>, cls: 'bg-[#F3E2C4] hover:bg-[#EBD2AB]', key: '2' },
+                              { rating: 'gotIt', label: 'Yes', icon: <Check className="w-4 h-4 mb-1" />, cls: 'bg-[#B7E4C7] hover:bg-[#9CD7B1]', key: '3' }
+                            ] as const).map((b) => (
+                              <button
+                                key={b.rating}
+                                type="button"
+                                onClick={() => handleRate(b.rating)}
+                                className={`py-3 px-2 ${b.cls} text-stone-900 font-bold text-xs rounded-2xl flex flex-col items-center justify-center transition-transform active:scale-95 shadow-xs`}
+                              >
+                                {b.icon}
+                                <span>{b.label}</span>
+                                <span className="text-[10px] font-medium text-stone-700 mt-0.5">{nextReviewLabel(currentCard, b.rating)}</span>
+                                <span className="hidden sm:inline-block font-mono text-[9px] text-stone-700 bg-white/70 px-1.5 rounded mt-1">{b.key}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </>
                   )}
 
@@ -1045,7 +1023,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                           className="py-2.5 px-2 bg-[#FFAAA6] hover:bg-[#FF9691] text-stone-900 font-bold text-xs rounded-2xl flex flex-col items-center justify-center transition-transform active:scale-95 shadow-xs"
                         >
                           <RotateCcw className="w-3.5 h-3.5 mb-0.5" />
-                          <span>Again</span>
+                          <span>No</span>
                         </button>
 
                         <button
@@ -1054,7 +1032,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                           className="py-2.5 px-2 bg-[#F3E2C4] hover:bg-[#EBD2AB] text-stone-900 font-bold text-xs rounded-2xl flex flex-col items-center justify-center transition-transform active:scale-95 shadow-xs"
                         >
                           <span className="text-sm leading-none mb-0.5">~</span>
-                          <span>Almost</span>
+                          <span>Partly</span>
                         </button>
 
                         <button
@@ -1063,7 +1041,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                           className="py-2.5 px-2 bg-[#B7E4C7] hover:bg-[#9CD7B1] text-stone-900 font-bold text-xs rounded-2xl flex flex-col items-center justify-center transition-transform active:scale-95 shadow-xs"
                         >
                           <Check className="w-3.5 h-3.5 mb-0.5" />
-                          <span>Got it</span>
+                          <span>Yes</span>
                         </button>
                       </div>
                     </div>
@@ -1130,7 +1108,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                     <kbd className="px-1 py-0.5 bg-stone-200/80 border border-stone-300 rounded font-mono text-[10px] text-stone-800 font-bold">1</kbd>
                     <kbd className="px-1 py-0.5 bg-stone-200/80 border border-stone-300 rounded font-mono text-[10px] text-stone-800 font-bold">2</kbd>
                     <kbd className="px-1 py-0.5 bg-stone-200/80 border border-stone-300 rounded font-mono text-[10px] text-stone-800 font-bold">3</kbd>
-                    <span>Again / Almost / Got it</span>
+                    <span>No / Partly / Yes</span>
                   </span>
                   <span className="text-stone-300">·</span>
                   <span className="flex items-center gap-1 font-medium">
