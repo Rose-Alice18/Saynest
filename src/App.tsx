@@ -303,16 +303,8 @@ export default function App() {
       return [{ ...updatedWord, searchedAt: new Date().toISOString() }, ...prev];
     });
 
-    // Update collection discovery count
-    if (updatedWord.collectionId) {
-      setCollections((prev) =>
-        prev.map((c) =>
-          c.id === updatedWord.collectionId
-            ? { ...c, discoveriesCount: c.discoveriesCount + 1 }
-            : c
-        )
-      );
-    }
+    // Collection word counts are worked out from the saved words (see
+    // collectionsWithCounts), so moving a word between collections keeps them right
 
     showToast(`Saved "${updatedWord.word}" to your nest!`);
   };
@@ -830,7 +822,7 @@ export default function App() {
 
       {isBookSearchOpen && (
         <BookSearchModal
-          collections={collections}
+          collections={collections.map((c) => ({ ...c, discoveriesCount: words.filter((w) => w.collectionId === c.id).length }))}
           onClose={() => setIsBookSearchOpen(false)}
           onSelectOrAddBook={handleSelectOrAddBook}
           onSetCurrentlyReading={handleSetCurrentlyReading}

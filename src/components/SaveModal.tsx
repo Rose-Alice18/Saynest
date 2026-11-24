@@ -20,7 +20,8 @@ export const SaveModal: React.FC<SaveModalProps> = ({
   onCreateCollection
 }) => {
   const [personalNote, setPersonalNote] = useState(word.userNote || '');
-  const [selectedCollectionId, setSelectedCollectionId] = useState(word.collectionId || collections[0]?.id || '');
+  // '' means no collection: the word just sits in your library
+  const [selectedCollectionId, setSelectedCollectionId] = useState(word.collectionId || '');
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
   const [newCollectionTitle, setNewCollectionTitle] = useState('');
   // Source defaults come from the word, else the chosen book. (They used to
@@ -66,7 +67,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
     const updated: WordEntry = {
       ...word,
       userNote: personalNote.trim() || undefined,
-      collectionId: finalCollectionId,
+      collectionId: finalCollectionId || undefined,
       tags: finalTags,
       source: {
         type: sourceType,
@@ -192,6 +193,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
                 }}
                 className="w-full p-3 bg-white rounded-xl border border-stone-200 focus:outline-none focus:ring-2 focus:ring-[#FFE042] text-stone-800 font-medium"
               >
+                <option value="">No collection (just my library)</option>
                 {collections.map((col) => (
                   <option key={col.id} value={col.id}>
                     {col.title}
