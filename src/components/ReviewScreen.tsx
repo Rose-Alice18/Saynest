@@ -33,8 +33,9 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   collections = []
 }) => {
   // Which collection the "A collection" deck uses; starts on the book being read now
-  const [deckCollectionId, setDeckCollectionId] = useState(collections[0]?.id || '');
-  const deckCollection = collections.find((c) => c.id === deckCollectionId);
+  const [pickedCollectionId, setDeckCollectionId] = useState(collections[0]?.id || '');
+  // If the picked one no longer exists (or none was picked yet), use the book being read now
+  const deckCollectionId = collections.some((c) => c.id === pickedCollectionId) ? pickedCollectionId : collections[0]?.id || '';
   const [activeTab, setActiveTab] = useState<'Today' | 'Custom' | 'Commute'>('Today');
   
   // Custom Deck Configuration
@@ -71,8 +72,9 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
     document.body.scrollTop = 0;
   }, []);
 
-  // Words saved into the book you're reading now
+  // Words saved into the chosen collection
   const inCurrentBook = (w: WordEntry) => !!deckCollectionId && w.collectionId === deckCollectionId;
+  const isAdvanced = (w: WordEntry) => ['B2', 'C1', 'C2'].includes(w.nuance?.cefr || '');
 
   // Compute Review Deck based on active mode
   const getDeck = (): WordEntry[] => {
@@ -85,12 +87,12 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
       } else if (customFilter === 'book') {
         filtered = filtered.filter(inCurrentBook);
       } else if (customFilter === 'hard') {
-        filtered = filtered.filter(w => w.nuance?.cefr === 'C1' || w.nuance?.cefr === 'B2' || w.meanings.length > 1);
+        filtered = filtered.filter(isAdvanced);
       }
-
-      if (filtered.length === 0) {
-        filtered = words;
-      }
+      // An empty source stays empty (it used to quietly switch to the whole library)
+      if (filtered.length === 0) return [];
+      // "All" means every word in the source, once each
+      const limit = lengthPreset === 'all' ? filtered.length : customDeckLimit;
 
       if (sortOrder === 'shuffle') {
         filtered = [...filtered].sort(() => 0.5 - Math.random());
@@ -99,17 +101,17 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
       }
 
       // If user requested more cards than the unique items in pool, repeat shuffled to build full session!
-      if (customDeckLimit > filtered.length && filtered.length > 0) {
+      if (limit > filtered.length && filtered.length > 0) {
         const pool = [...filtered];
         const extended: WordEntry[] = [];
-        while (extended.length < customDeckLimit) {
+        while (extended.length < limit) {
           const round = [...pool].sort(() => 0.5 - Math.random());
           extended.push(...round);
         }
-        return extended.slice(0, customDeckLimit);
+        return extended.slice(0, limit);
       }
 
-      return filtered.slice(0, customDeckLimit);
+      return filtered.slice(0, limit);
     }
     // 'Today' mode: the words that are actually due
     return dueWords(words);
@@ -120,7 +122,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   // words would drop out of today's deck while it was being worked through.
   // sessionKey changes whenever a new session starts.
   const [sessionKey, setSessionKey] = useState(0);
-  const reviewDeck = useMemo(getDeck, [activeTab, customFilter, customDeckLimit, sortOrder, sessionKey, deckCollectionId]);
+  const reviewDeck = useMemo(getDeck, [activeTab, customFilter, customDeckLimit, sortOrder, sessionKey, deckCollectionId, lengthPreset]);
   const currentCard = reviewDeck[currentIndex] || reviewDeck[0];
 
   // Setup Quiz Options whenever card changes
@@ -287,11 +289,11 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
     if (filterId === 'starred') return words.filter(w => w.isStarred).length;
     if (filterId === 'transitions') return words.filter(w => w.type === 'transition' || w.tags?.includes('transition')).length;
     if (filterId === 'book') return words.filter(inCurrentBook).length;
-    if (filterId === 'hard') return words.filter(w => w.nuance?.cefr === 'C1' || w.nuance?.cefr === 'B2').length;
+    if (filterId === 'hard') return words.filter(isAdvanced).length;
     return words.length;
   };
 
-  const currentAvailableTotal = getFilterCount(customFilter) || words.length;
+  const currentAvailableTotal = getFilterCount(customFilter);
 
   if (!currentCard && words.length === 0) {
     return (
@@ -500,12 +502,52 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                 {[
                   { id: 'starred', label: 'Starred Discoveries', icon: Star, count: getFilterCount('starred'), activeIconClass: 'fill-amber-400 text-amber-500' },
                   { id: 'transitions', label: 'Rhetorical Transitions', icon: Layers, count: getFilterCount('transitions') },
-                  { id: 'book', label: deckCollection ? `Collection: ${deckCollection.title}` : 'A collection', icon: BookOpen, count: getFilterCount('book') },
+                  { id: 'book', label: 'Collection', icon: BookOpen, count: getFilterCount('book') },
                   { id: 'hard', label: 'Advanced Words (B2–C1)', icon: Sparkles, count: getFilterCount('hard') },
                   { id: 'all', label: 'Entire Nest Library', icon: BookMarked, count: words.length },
                 ].map((item) => {
                   const Icon = item.icon;
                   const isSelected = customFilter === item.id;
+                  if (item.id === 'book') {
+                    // A dropdown can't sit inside a button, so this tile is a box with its own click
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => setCustomFilter('book')}
+                        className={`p-2.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#FFE042] border-[#FFE042] text-stone-950 font-bold shadow-xs ring-2 ring-stone-900/10'
+                            : 'bg-white hover:bg-stone-50 border-stone-200 text-stone-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 font-semibold">
+                          <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-stone-950' : 'text-stone-500'}`} />
+                          <label htmlFor="deck-collection" className="cursor-pointer">Collection</label>
+                        </div>
+                        <select
+                          id="deck-collection"
+                          value={deckCollectionId}
+                          onClick={(e) => e.stopPropagation()}
+                          onFocus={() => setCustomFilter('book')}
+                          onChange={(e) => {
+                            setDeckCollectionId(e.target.value);
+                            setCustomFilter('book');
+                          }}
+                          className="mt-1 ml-5 max-w-[calc(100%-1.25rem)] py-0.5 pl-1.5 pr-5 bg-white/90 rounded-md border border-stone-300 text-[11px] font-semibold text-stone-900 truncate focus:outline-none focus:ring-2 focus:ring-stone-900/20"
+                        >
+                          {collections.length === 0 && <option value="">No collections yet</option>}
+                          {collections.map((c, i) => (
+                            <option key={c.id} value={c.id}>
+                              {c.title}{i === 0 ? ' (reading now)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="text-[10px] text-stone-500 mt-1 pl-5">
+                          {item.count} {item.count === 1 ? 'item' : 'items'} in pool
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <button
                       key={item.id}
@@ -531,29 +573,6 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                   );
                 })}
               </div>
-              {customFilter === 'book' && (
-                <div className="mt-2">
-                  <label htmlFor="deck-collection" className="sr-only">Collection to practise</label>
-                  <select
-                    id="deck-collection"
-                    value={deckCollectionId}
-                    onChange={(e) => {
-                      setDeckCollectionId(e.target.value);
-                      if (lengthPreset === 'all') {
-                        setCustomDeckLimit(words.filter((w) => w.collectionId === e.target.value).length);
-                      }
-                    }}
-                    className="w-full p-2.5 bg-white rounded-xl border border-stone-200 text-xs font-semibold text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FFE042]"
-                  >
-                    {collections.length === 0 && <option value="">No collections yet</option>}
-                    {collections.map((c, i) => (
-                      <option key={c.id} value={c.id}>
-                        {c.title}{i === 0 ? ' (reading now)' : ''} · {(() => { const n = words.filter((w) => w.collectionId === c.id).length; return n === 1 ? '1 word' : n + ' words'; })()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
             </div>
 
             {/* 2. Practice Mode & Drill Style */}
@@ -633,6 +652,9 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                   All ({currentAvailableTotal})
                 </button>
               </div>
+              <p className="text-[11px] text-stone-500 mb-2.5">
+                "All" goes through every word in the source once. Pick a bigger number to repeat words in a shuffled order.
+              </p>
 
               {/* Exact Custom Stepper Input */}
               <div className="flex items-center gap-2 p-2 bg-white rounded-xl border border-stone-200 max-w-xs">
@@ -652,7 +674,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                   type="number"
                   min={1}
                   max={200}
-                  value={customDeckLimit}
+                  value={lengthPreset === 'all' ? currentAvailableTotal : customDeckLimit}
                   onChange={(e) => {
                     const val = Math.max(1, parseInt(e.target.value) || 1);
                     setCustomDeckLimit(val);
@@ -673,7 +695,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                 <span className="text-xs text-stone-400 font-mono">cards</span>
               </div>
 
-              {customDeckLimit > currentAvailableTotal && (
+              {lengthPreset !== 'all' && currentAvailableTotal > 0 && customDeckLimit > currentAvailableTotal && (
                 <div className="text-[11px] text-amber-900 font-medium bg-amber-50/90 p-2.5 rounded-xl border border-amber-200/70 mt-2.5 flex items-center gap-2">
                   <span className="font-bold">Note:</span>
                   <span>
@@ -684,12 +706,20 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
             </div>
 
             {/* Launch Button */}
+            {reviewDeck.length === 0 && (
+              <p role="status" className="text-xs text-stone-700 bg-stone-100 rounded-xl p-3 text-center">
+                {customFilter === 'book'
+                  ? 'This collection has no saved words yet. Pick another one, or save words into it first.'
+                  : 'There are no words in this source yet. Pick another source.'}
+              </p>
+            )}
             <button
+              disabled={reviewDeck.length === 0}
               onClick={() => {
                 setIsCustomConfiguring(false);
                 handleRestart();
               }}
-              className="w-full py-3.5 bg-[#FFE042] hover:bg-[#F7D836] text-stone-900 rounded-2xl text-xs font-bold shadow-xs transition-transform active:scale-98 flex items-center justify-center gap-2"
+              className="w-full py-3.5 bg-[#FFE042] hover:bg-[#F7D836] disabled:opacity-50 disabled:cursor-not-allowed text-stone-900 rounded-2xl text-xs font-bold shadow-xs transition-transform active:scale-98 flex items-center justify-center gap-2"
             >
               <span>Launch Custom Review ({reviewDeck.length} cards · {practiceMode})</span>
               <ArrowRight className="w-4 h-4" />
