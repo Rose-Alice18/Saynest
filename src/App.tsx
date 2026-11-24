@@ -761,7 +761,7 @@ export default function App() {
             {currentTab === 'Review' && (
               <ReviewScreen
                 words={words}
-                currentBook={collections[0]}
+                collections={collections}
                 onRateWord={handleRateReview}
                 onOpenCommuteMode={() => setIsCommuteMode(true)}
                 onFinishSession={() => setCurrentTab('Home')}

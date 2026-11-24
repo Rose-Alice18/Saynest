@@ -18,8 +18,8 @@ interface ReviewScreenProps {
   onOpenCommuteMode: () => void;
   onFinishSession: () => void;
   onBack?: () => void;
-  /** The book being read now, for the "current book" deck */
-  currentBook?: Collection;
+  /** Collections to pick a deck from (the first is the book being read now) */
+  collections?: Collection[];
 }
 
 export type CustomPracticeMode = 'flashcard' | 'recall' | 'listening' | 'quiz';
@@ -30,8 +30,11 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   onOpenCommuteMode,
   onFinishSession,
   onBack,
-  currentBook
+  collections = []
 }) => {
+  // Which collection the "A collection" deck uses; starts on the book being read now
+  const [deckCollectionId, setDeckCollectionId] = useState(collections[0]?.id || '');
+  const deckCollection = collections.find((c) => c.id === deckCollectionId);
   const [activeTab, setActiveTab] = useState<'Today' | 'Custom' | 'Commute'>('Today');
   
   // Custom Deck Configuration
@@ -69,7 +72,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   }, []);
 
   // Words saved into the book you're reading now
-  const inCurrentBook = (w: WordEntry) => !!currentBook && w.collectionId === currentBook.id;
+  const inCurrentBook = (w: WordEntry) => !!deckCollectionId && w.collectionId === deckCollectionId;
 
   // Compute Review Deck based on active mode
   const getDeck = (): WordEntry[] => {
@@ -117,7 +120,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   // words would drop out of today's deck while it was being worked through.
   // sessionKey changes whenever a new session starts.
   const [sessionKey, setSessionKey] = useState(0);
-  const reviewDeck = useMemo(getDeck, [activeTab, customFilter, customDeckLimit, sortOrder, sessionKey]);
+  const reviewDeck = useMemo(getDeck, [activeTab, customFilter, customDeckLimit, sortOrder, sessionKey, deckCollectionId]);
   const currentCard = reviewDeck[currentIndex] || reviewDeck[0];
 
   // Setup Quiz Options whenever card changes
@@ -497,7 +500,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                 {[
                   { id: 'starred', label: 'Starred Discoveries', icon: Star, count: getFilterCount('starred'), activeIconClass: 'fill-amber-400 text-amber-500' },
                   { id: 'transitions', label: 'Rhetorical Transitions', icon: Layers, count: getFilterCount('transitions') },
-                  { id: 'book', label: currentBook ? `Reading now: ${currentBook.title}` : "Book you're reading", icon: BookOpen, count: getFilterCount('book') },
+                  { id: 'book', label: deckCollection ? `Collection: ${deckCollection.title}` : 'A collection', icon: BookOpen, count: getFilterCount('book') },
                   { id: 'hard', label: 'Advanced Words (B2–C1)', icon: Sparkles, count: getFilterCount('hard') },
                   { id: 'all', label: 'Entire Nest Library', icon: BookMarked, count: words.length },
                 ].map((item) => {
@@ -528,6 +531,29 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
                   );
                 })}
               </div>
+              {customFilter === 'book' && (
+                <div className="mt-2">
+                  <label htmlFor="deck-collection" className="sr-only">Collection to practise</label>
+                  <select
+                    id="deck-collection"
+                    value={deckCollectionId}
+                    onChange={(e) => {
+                      setDeckCollectionId(e.target.value);
+                      if (lengthPreset === 'all') {
+                        setCustomDeckLimit(words.filter((w) => w.collectionId === e.target.value).length);
+                      }
+                    }}
+                    className="w-full p-2.5 bg-white rounded-xl border border-stone-200 text-xs font-semibold text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FFE042]"
+                  >
+                    {collections.length === 0 && <option value="">No collections yet</option>}
+                    {collections.map((c, i) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title}{i === 0 ? ' (reading now)' : ''} · {(() => { const n = words.filter((w) => w.collectionId === c.id).length; return n === 1 ? '1 word' : n + ' words'; })()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* 2. Practice Mode & Drill Style */}
