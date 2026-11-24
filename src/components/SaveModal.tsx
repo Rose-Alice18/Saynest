@@ -23,14 +23,17 @@ export const SaveModal: React.FC<SaveModalProps> = ({
   const [selectedCollectionId, setSelectedCollectionId] = useState(word.collectionId || collections[0]?.id || '');
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
   const [newCollectionTitle, setNewCollectionTitle] = useState('');
+  // Source defaults come from the word, else the chosen book. (They used to
+  // default to Pride and Prejudice, chapter 14, page 126 for every word.)
+  const initialCollection = collections.find(c => c.id === selectedCollectionId);
   const [sourceType, setSourceType] = useState<'Book' | 'Article' | 'Speech' | 'Other'>(word.source?.type || 'Book');
-  const [sourceTitle, setSourceTitle] = useState(word.source?.title || 'Pride and Prejudice');
-  const [sourceAuthor, setSourceAuthor] = useState(word.source?.author || 'Jane Austen');
-  const [chapter, setChapter] = useState(word.source?.chapter || '14');
-  const [page, setPage] = useState(word.source?.page || '126');
+  const [sourceTitle, setSourceTitle] = useState(word.source?.title || initialCollection?.title || '');
+  const [sourceAuthor, setSourceAuthor] = useState(word.source?.author || initialCollection?.author || '');
+  const [chapter, setChapter] = useState(word.source?.chapter || '');
+  const [page, setPage] = useState(word.source?.page || '');
   const [tagInput, setTagInput] = useState('');
-  const [tags, setTags] = useState<string[]>(word.tags || ['useful', 'literature']);
-  const [reminderEnabled, setReminderEnabled] = useState(true);
+  const [tags, setTags] = useState<string[]>(word.tags || []);
+  const [reminderEnabled, setReminderEnabled] = useState(word.reviewStatus?.dueForReview !== false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   const handlePlayAudio = () => {
@@ -56,11 +59,15 @@ export const SaveModal: React.FC<SaveModalProps> = ({
       finalCollectionId = onCreateCollection(newCollectionTitle.trim());
     }
 
+    // A tag typed but not yet added with "Add" still counts
+    const pendingTag = tagInput.trim().toLowerCase();
+    const finalTags = pendingTag && !tags.includes(pendingTag) ? [...tags, pendingTag] : tags;
+
     const updated: WordEntry = {
       ...word,
       userNote: personalNote.trim() || undefined,
       collectionId: finalCollectionId,
-      tags,
+      tags: finalTags,
       source: {
         type: sourceType,
         title: sourceTitle.trim() || undefined,
@@ -68,11 +75,13 @@ export const SaveModal: React.FC<SaveModalProps> = ({
         chapter: chapter.trim() || undefined,
         page: page.trim() || undefined
       },
+      // Keep the word's review schedule; only the reminder switch changes.
+      // (Saving used to reset it, so editing a note lost all review progress.)
       reviewStatus: {
-        dueForReview: reminderEnabled,
-        intervalDays: 1,
+        intervalDays: 0,
         repetitions: 0,
-        nextReviewDate: new Date().toISOString().split('T')[0]
+        ...word.reviewStatus,
+        dueForReview: reminderEnabled
       }
     };
 
@@ -185,7 +194,7 @@ export const SaveModal: React.FC<SaveModalProps> = ({
               >
                 {collections.map((col) => (
                   <option key={col.id} value={col.id}>
-                    {col.title} ({col.discoveriesCount} discoveries)
+                    {col.title}
                   </option>
                 ))}
               </select>

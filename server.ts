@@ -585,7 +585,7 @@ app.get('/api/books/search', async (req, res) => {
       {
         id: `book-${Date.now()}`,
         title: query,
-        author: 'Author',
+        author: 'Unknown author',
         coverUrl: undefined,
         pageCount: 200
       }

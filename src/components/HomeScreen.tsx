@@ -6,6 +6,7 @@ import {
   BookMarked, Headphones, Bookmark
 } from 'lucide-react';
 import { speakWord } from '../utils/speech';
+import { clickableProps } from '../utils/a11y';
 import { SayNestBird } from './SayNestBird';
 import { BookCover } from './BookCover';
 import { VoiceSearchModal } from './VoiceSearchModal';
@@ -95,7 +96,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       : null;
 
   return (
-    <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-20">
+    <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-36 md:pb-20">
       {/* Hero Header matching Mockup Screen 1, responsive on both mobile and wide screens */}
       <div className="bg-[#FFE042] px-4 sm:px-8 pt-5 pb-7 rounded-b-[32px] sm:rounded-b-[40px] relative overflow-hidden shadow-xs">
         <div className="max-w-6xl mx-auto w-full relative z-10">
@@ -236,8 +237,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 {recentWords.slice(0, 5).map((word) => (
                   <div
                     key={word.id}
-                    onClick={() => onSelectWord(word)}
-                    className="p-4 bg-white hover:bg-stone-50 rounded-2xl border border-stone-200/80 shadow-2xs flex items-center justify-between cursor-pointer transition-all group"
+                    {...clickableProps(() => onSelectWord(word))}
+                    className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 p-4 bg-white hover:bg-stone-50 rounded-2xl border border-stone-200/80 shadow-2xs flex items-center justify-between cursor-pointer transition-all group"
                   >
                     <div className="flex items-center gap-3.5 min-w-0">
                       <div className="w-9 h-9 rounded-full bg-[#FAF6EC] flex items-center justify-center shrink-0 text-stone-700 font-serif font-bold text-sm">
@@ -300,8 +301,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 </div>
 
                 <div
-                  onClick={() => onOpenCollections(activeBook.id)}
-                  className="p-5 bg-white hover:bg-stone-50/80 rounded-3xl border border-stone-200/80 shadow-2xs flex items-center justify-between cursor-pointer transition-all group"
+                  {...clickableProps(() => onOpenCollections(activeBook.id))}
+                  className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 p-5 bg-white hover:bg-stone-50/80 rounded-3xl border border-stone-200/80 shadow-2xs flex items-center justify-between cursor-pointer transition-all group"
                 >
                   <div className="flex items-center gap-4 flex-1 min-w-0">
                     {/* Illustrated Book Jacket matching ref image */}
@@ -381,8 +382,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             {/* Expressions & Transitions Spotlight Card */}
             {onOpenExpressions && (
               <div 
-                onClick={onOpenExpressions}
-                className="bg-white hover:bg-stone-50/90 p-5 rounded-3xl border border-stone-200/90 shadow-xs cursor-pointer transition-all group flex items-start justify-between gap-4"
+                {...clickableProps(onOpenExpressions)}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 bg-white hover:bg-stone-50/90 p-5 rounded-3xl border border-stone-200/90 shadow-xs cursor-pointer transition-all group flex items-start justify-between gap-4"
               >
                 <div className="space-y-2 flex-1">
                   <div className="flex items-center gap-2">
@@ -409,8 +410,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             {/* Commute Audio Mode Feature Card */}
             {onOpenCommuteMode && (
               <div 
-                onClick={onOpenCommuteMode}
-                className="bg-[#FFE042]/20 hover:bg-[#FFE042]/30 border border-[#FFE042]/60 p-5 rounded-3xl shadow-xs cursor-pointer transition-all group flex items-center justify-between gap-4"
+                {...clickableProps(onOpenCommuteMode)}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 bg-[#FFE042]/20 hover:bg-[#FFE042]/30 border border-[#FFE042]/60 p-5 rounded-3xl shadow-xs cursor-pointer transition-all group flex items-center justify-between gap-4"
               >
                 <div className="space-y-1.5 flex-1">
                   <div className="flex items-center gap-2">

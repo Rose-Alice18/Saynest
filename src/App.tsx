@@ -106,7 +106,14 @@ export default function App() {
   // Modals
   const [saveModalWord, setSaveModalWord] = useState<WordEntry | null>(null);
   const [practiceModalWord, setPracticeModalWord] = useState<WordEntry | null>(null);
-  const [isScanPageOpen, setIsScanPageOpen] = useState(false);
+  // 'hidden' keeps the scan modal (and its text, photo and results) alive
+  // while a word from it is opened with Define, so going back restores it
+  const [scanModal, setScanModal] = useState<'closed' | 'open' | 'hidden'>('closed');
+  const scanModalRef = useRef(scanModal);
+  scanModalRef.current = scanModal;
+  const setIsScanPageOpen = (open: boolean) => setScanModal(open ? 'open' : 'closed');
+  // Leaving for another screen means the hidden scan session is done
+  const discardHiddenScan = () => setScanModal((m) => (m === 'hidden' ? 'closed' : m));
   // "Paste text" and "Scan a page" share a modal; this picks its starting tab
   const [scanPageTab, setScanPageTab] = useState<'scan' | 'paste'>('scan');
   const openScanPage = (tab: 'scan' | 'paste') => {
@@ -343,11 +350,12 @@ export default function App() {
 
   // Handler: Return to previous context from Word Detail Screen
   const handleBackFromWordDetail = () => {
-    if (navigationSource.fromScanPage) {
+    if (canGoBack) {
+      // Going back also brings back a scan session hidden by Define
+      window.history.back();
+    } else if (navigationSource.fromScanPage) {
       setActiveWordDetail(null);
       setIsScanPageOpen(true);
-    } else if (canGoBack) {
-      window.history.back();
     } else {
       setActiveWordDetail(null);
       if (navigationSource.tab) {
@@ -520,7 +528,13 @@ export default function App() {
       // Close anything open on top of the screen
       setSaveModalWord(null);
       setPracticeModalWord(null);
-      setIsScanPageOpen(false);
+      // A scan session hidden by Define comes back once we're off the word
+      // page; an open scan modal is closed like any other
+      if (scanModalRef.current === 'hidden') {
+        if (!s.word) setScanModal('open');
+      } else {
+        setScanModal('closed');
+      }
       setIsAddQuoteOpen(false);
       setIsQuickAddOpen(false);
       setIsBookSearchOpen(false);
@@ -554,11 +568,13 @@ export default function App() {
       <HeaderNav
         currentTab={currentTab}
         onTabChange={(tab) => {
+          discardHiddenScan();
           setActiveWordDetail(null);
           setIsCommuteMode(false);
           setCurrentTab(tab);
         }}
         onOpenCommuteMode={() => {
+          discardHiddenScan();
           setActiveWordDetail(null);
           setIsCommuteMode(true);
         }}
@@ -669,6 +685,7 @@ export default function App() {
                   onToggleStar={handleToggleStar}
                   onCreateCollection={handleCreateCollection}
                   onOpenBookSearch={() => setIsBookSearchOpen(true)}
+                  onSetCurrentlyReading={handleSetCurrentlyReading}
                   onBack={() => goBack(() => setCurrentTab('Home'))}
                 />
               </div>
@@ -682,6 +699,10 @@ export default function App() {
                   setActiveWordDetail(w);
                 }}
                 onOpenSaveModal={(w) => setSaveModalWord(w)}
+                onSearchLookup={(phrase) => {
+                  setNavigationSource({ tab: 'Expressions' });
+                  handleSearchLookup(phrase);
+                }}
                 onBackToHome={() => goBack(() => setCurrentTab('Home'))}
                 onAddCustomExpression={(expr) => handleSaveWord(expr)}
               />
@@ -699,11 +720,13 @@ export default function App() {
           </div>
         )}
 
-        {/* Mobile Bottom Navigation (Only on mobile for root screens Home, Library, Collections) */}
-        {!isCommuteMode && !activeWordDetail && (currentTab === 'Home' || currentTab === 'Library' || currentTab === 'Collections') && (
+        {/* Mobile Bottom Navigation on every main screen (the word page and
+            Commute mode have their own controls) */}
+        {!isCommuteMode && !activeWordDetail && (
           <BottomNav
             currentTab={currentTab}
             onTabChange={(tab) => {
+              discardHiddenScan();
               setActiveWordDetail(null);
               setCurrentTab(tab);
             }}
@@ -731,17 +754,20 @@ export default function App() {
         />
       )}
 
-      {isScanPageOpen && (
-        <ScanPageModal
-          initialTab={scanPageTab}
-          onClose={() => setIsScanPageOpen(false)}
-          onDefineWord={(w) => {
-            setNavigationSource({ tab: currentTab, collectionId: selectedCollectionId, fromScanPage: true });
-            setIsScanPageOpen(false);
-            handleSearchLookup(w);
-          }}
-          onSaveExtractedWord={handleSaveExtractedWord}
-        />
+      {scanModal !== 'closed' && (
+        // Hidden rather than unmounted while a word from it is open
+        <div hidden={scanModal === 'hidden'}>
+          <ScanPageModal
+            initialTab={scanPageTab}
+            onClose={() => setScanModal('closed')}
+            onDefineWord={(w) => {
+              setNavigationSource({ tab: currentTab, collectionId: selectedCollectionId, fromScanPage: true });
+              setScanModal('hidden');
+              handleSearchLookup(w);
+            }}
+            onSaveExtractedWord={handleSaveExtractedWord}
+          />
+        </div>
       )}
 
       {isAddQuoteOpen && (

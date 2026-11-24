@@ -307,7 +307,7 @@ export const ReviewScreen: React.FC<ReviewScreenProps> = ({
   };
 
   return (
-    <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-20">
+    <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-36 md:pb-20">
       {/* Top Header matching Mockup Screen 7: Back Arrow + Title "Review" + Settings Gear (No redundant yellow commute pill!) */}
       <div className="sticky top-0 z-20 bg-[#FFFDF7]/95 backdrop-blur-md px-5 py-3 border-b border-stone-200/60 flex items-center justify-between">
         <div className="flex items-center gap-2.5">

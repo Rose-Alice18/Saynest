@@ -5,6 +5,7 @@ import {
   SlidersHorizontal, ArrowLeft, MoreVertical, Download, Check, Search, X 
 } from 'lucide-react';
 import { speakWord } from '../utils/speech';
+import { clickableProps } from '../utils/a11y';
 import { BookCover } from './BookCover';
 import { ExportModal } from './ExportModal';
 
@@ -17,8 +18,16 @@ interface CollectionsScreenProps {
   onToggleStar: (wordId: string) => void;
   onCreateCollection: (title: string, author?: string) => void;
   onOpenBookSearch: () => void;
+  /** Make a book the one shown as "Currently reading" on Home */
+  onSetCurrentlyReading?: (collectionId: string) => void;
   onBack?: () => void;
 }
+
+// Reading progress from the chapter you're on, or null if unknown
+const chapterProgress = (c: Collection) =>
+  c.totalChapters && c.currentChapter
+    ? Math.min(100, Math.round((c.currentChapter / c.totalChapters) * 100))
+    : null;
 
 export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
   collections,
@@ -29,8 +38,11 @@ export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
   onToggleStar,
   onCreateCollection,
   onOpenBookSearch,
+  onSetCurrentlyReading,
   onBack
 }) => {
+  // The first collection is the one Home shows as "Currently reading"
+  const readingNowId = collections[0]?.id;
   const [internalSelectedId, setInternalSelectedId] = useState(collections[0]?.id || '');
   const [filterType, setFilterType] = useState<'All' | 'Words' | 'Phrases' | 'Quotes'>('All');
   const [isCreatingModal, setIsCreatingModal] = useState(false);
@@ -88,7 +100,7 @@ export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
   };
 
   return (
-    <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-28">
+    <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-36 md:pb-28">
       {/* Clean Header with Interactive Book Switcher + + New Book (Option 1 matching Figma Screen 4) */}
       <div className="sticky top-0 z-20 bg-[#FFFDF7]/95 backdrop-blur-md px-4 py-2.5 border-b border-stone-200/60 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -122,7 +134,7 @@ export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
             )}
             <div className="min-w-0 flex-1">
               <span className="text-[10px] uppercase font-bold text-amber-800 tracking-wider block leading-none">
-                Reading Now
+                {activeCollection?.id === readingNowId ? 'Reading now' : 'Viewing'}
               </span>
               <span className="text-sm font-bold font-serif-display text-stone-950 truncate block mt-0.5">
                 {activeCollection?.title || 'Select Book'}
@@ -161,8 +173,8 @@ export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
           <div className="bg-[#FAF6EC] p-5 rounded-3xl border border-stone-200/80 shadow-xs flex items-center gap-4">
             {/* Illustrated Book Jacket matching ref image - clickable to open shelf */}
             <div 
-              onClick={() => setIsBookshelfDrawerOpen(true)}
-              className="cursor-pointer group relative transition-transform hover:scale-105"
+              {...clickableProps(() => setIsBookshelfDrawerOpen(true))}
+              className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 cursor-pointer group relative transition-transform hover:scale-105"
               title="Click cover to switch book from bookshelf"
             >
               <BookCover
@@ -191,16 +203,29 @@ export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
                 {activeCollection.author}
               </div>
               <div className="flex items-center gap-2 text-xs text-stone-500 mt-2">
-                <span>⏱</span>
-                <span>{collectionWords.length} discoveries</span>
+                <span>
+                  {collectionWords.length} {collectionWords.length === 1 ? 'discovery' : 'discoveries'}
+                </span>
               </div>
-              {/* Progress bar */}
-              <div className="w-full bg-stone-200 h-1.5 rounded-full mt-2.5 overflow-hidden">
-                <div
-                  className="bg-[#FFE042] h-full rounded-full"
-                  style={{ width: `${Math.min(100, (collectionWords.length / 40) * 100)}%` }}
-                />
-              </div>
+              {/* Reading progress (the old bar was saved words ÷ 40, which meant nothing) */}
+              {chapterProgress(activeCollection) !== null && (
+                <div className="mt-2.5 flex items-center gap-2">
+                  <div className="w-full bg-stone-200 h-1.5 rounded-full overflow-hidden">
+                    <div className="bg-[#FFE042] h-full rounded-full" style={{ width: `${chapterProgress(activeCollection)}%` }} />
+                  </div>
+                  <span className="text-[10px] text-stone-500 font-semibold shrink-0">
+                    Ch. {activeCollection.currentChapter}/{activeCollection.totalChapters}
+                  </span>
+                </div>
+              )}
+              {onSetCurrentlyReading && activeCollection.id !== readingNowId && (
+                <button
+                  onClick={() => onSetCurrentlyReading(activeCollection.id)}
+                  className="mt-3 py-1.5 px-3 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-[11px] font-bold"
+                >
+                  Mark as currently reading
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -262,8 +287,8 @@ export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
                 {items.map(item => (
                   <div
                     key={item.id}
-                    onClick={() => onSelectWord(item)}
-                    className="p-4 bg-white hover:bg-stone-50/80 rounded-2xl border border-stone-200/80 shadow-xs cursor-pointer transition-all flex items-start justify-between gap-3 group"
+                    {...clickableProps(() => onSelectWord(item))}
+                    className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 p-4 bg-white hover:bg-stone-50/80 rounded-2xl border border-stone-200/80 shadow-xs cursor-pointer transition-all flex items-start justify-between gap-3 group"
                   >
                     <div className="flex items-start gap-3 flex-1 min-w-0">
                       <button
@@ -440,7 +465,7 @@ export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
                   return (
                     <div
                       key={col.id}
-                      onClick={() => {
+                      {...clickableProps(() => {
                         if (onSelectCollectionId) {
                           onSelectCollectionId(col.id);
                         } else {
@@ -448,8 +473,8 @@ export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
                         }
                         setIsBookshelfDrawerOpen(false);
                         window.scrollTo({ top: 0, behavior: 'smooth' });
-                      }}
-                      className={`p-3.5 rounded-2xl border transition-all text-left flex items-start gap-3 cursor-pointer group ${
+                      })}
+                      className={`focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 p-3.5 rounded-2xl border transition-all text-left flex items-start gap-3 cursor-pointer group ${
                         isCurrent
                           ? 'bg-[#FAF6EC] border-[#FFE042] ring-2 ring-[#FFE042]/50 shadow-sm'
                           : 'bg-white hover:bg-[#FAF6EC]/80 border-stone-200/80 hover:border-amber-300 shadow-2xs'
@@ -468,10 +493,19 @@ export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
 
                       {/* Book Details */}
                       <div className="flex-1 min-w-0">
-                        {isCurrent && (
-                          <div className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-900 bg-amber-200/70 px-2 py-0.5 rounded-full mb-1">
-                            <Check className="w-3 h-3 text-amber-800 stroke-[2.5]" />
-                            <span>Reading Now</span>
+                        {(isCurrent || col.id === readingNowId) && (
+                          <div className="flex flex-wrap gap-1 mb-1">
+                            {col.id === readingNowId && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-900 bg-amber-200/70 px-2 py-0.5 rounded-full">
+                                <Check className="w-3 h-3 text-amber-800 stroke-[2.5]" />
+                                Reading now
+                              </span>
+                            )}
+                            {isCurrent && (
+                              <span className="text-[10px] font-bold text-stone-700 bg-stone-200/80 px-2 py-0.5 rounded-full">
+                                Viewing
+                              </span>
+                            )}
                           </div>
                         )}
                         <h4 className="font-bold text-sm font-serif-display text-stone-950 truncate group-hover:text-amber-900 transition-colors">
@@ -482,16 +516,15 @@ export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
                         </p>
 
                         <div className="flex items-center gap-2 text-[11px] text-stone-600 font-medium mt-2">
-                          <span>⏱ {wordCountForCol} discoveries</span>
+                          <span>{wordCountForCol} {wordCountForCol === 1 ? 'discovery' : 'discoveries'}</span>
                         </div>
 
-                        {/* Progress Bar */}
-                        <div className="w-full bg-stone-200 h-1.5 rounded-full mt-2 overflow-hidden">
-                          <div
-                            className="bg-[#FFE042] h-full rounded-full"
-                            style={{ width: `${Math.min(100, (wordCountForCol / 40) * 100)}%` }}
-                          />
-                        </div>
+                        {/* Reading progress, when the chapter is known */}
+                        {chapterProgress(col) !== null && (
+                          <div className="w-full bg-stone-200 h-1.5 rounded-full mt-2 overflow-hidden">
+                            <div className="bg-[#FFE042] h-full rounded-full" style={{ width: `${chapterProgress(col)}%` }} />
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -499,11 +532,11 @@ export const CollectionsScreen: React.FC<CollectionsScreenProps> = ({
 
                 {/* + Add New Book Card in Shelf */}
                 <div
-                  onClick={() => {
+                  {...clickableProps(() => {
                     setIsBookshelfDrawerOpen(false);
                     onOpenBookSearch();
-                  }}
-                  className="p-4 rounded-2xl border-2 border-dashed border-stone-300 hover:border-[#FFE042] bg-stone-50/50 hover:bg-[#FAF6EC]/60 transition-all flex flex-col items-center justify-center text-center cursor-pointer min-h-[110px] group"
+                  })}
+                  className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 p-4 rounded-2xl border-2 border-dashed border-stone-300 hover:border-[#FFE042] bg-stone-50/50 hover:bg-[#FAF6EC]/60 transition-all flex flex-col items-center justify-center text-center cursor-pointer min-h-[110px] group"
                 >
                   <div className="w-10 h-10 rounded-full bg-[#FFE042] group-hover:bg-[#F7D836] flex items-center justify-center text-stone-900 shadow-2xs mb-2 transition-transform group-hover:scale-110">
                     <Plus className="w-5 h-5 stroke-[2.5]" />

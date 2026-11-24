@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Collection } from '../types';
 import { BookCover } from './BookCover';
 import { Search, Mic, MicOff, BookOpen, Check, X, Sparkles, Loader2, ArrowRight } from 'lucide-react';
+import { recognitionErrorMessage, UNSUPPORTED_MESSAGE } from '../utils/speechCheck';
 
 interface BookSearchModalProps {
   collections: Collection[];
@@ -98,7 +99,7 @@ export const BookSearchModal: React.FC<BookSearchModalProps> = ({
     const fallbackBook: FetchedBook = {
       id: `manual-${Date.now()}`,
       title: searchQuery.trim(),
-      author: 'Author',
+      author: 'Unknown author',
       coverUrl: undefined,
       pageCount: 300
     };
@@ -107,11 +108,13 @@ export const BookSearchModal: React.FC<BookSearchModalProps> = ({
     setIsSearching(false);
   };
 
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+
   const handleVoiceInput = () => {
+    setVoiceError(null);
+    // This used to search a random classic novel when voice wasn't supported
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      const chosen = quickSuggestions[Math.floor(Math.random() * quickSuggestions.length)];
-      setQuery(chosen);
-      searchBooksOnline(chosen);
+      setVoiceError(UNSUPPORTED_MESSAGE);
       return;
     }
 
@@ -128,7 +131,10 @@ export const BookSearchModal: React.FC<BookSearchModalProps> = ({
         setIsVoiceListening(false);
         searchBooksOnline(text);
       };
-      recognition.onerror = () => setIsVoiceListening(false);
+      recognition.onerror = (e: any) => {
+        setIsVoiceListening(false);
+        if (e?.error !== 'aborted') setVoiceError(recognitionErrorMessage(e?.error));
+      };
       recognition.onend = () => setIsVoiceListening(false);
       recognition.start();
     } catch {
@@ -240,6 +246,11 @@ export const BookSearchModal: React.FC<BookSearchModalProps> = ({
                   <div className="text-xs text-rose-600 font-medium mt-1.5 flex items-center gap-1.5 animate-pulse">
                     <span className="w-2 h-2 rounded-full bg-rose-500"></span>
                     Listening... Speak the title and author now.
+                  </div>
+                )}
+                {voiceError && !isVoiceListening && (
+                  <div role="alert" className="mt-1.5 p-2 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-900">
+                    {voiceError}
                   </div>
                 )}
               </div>

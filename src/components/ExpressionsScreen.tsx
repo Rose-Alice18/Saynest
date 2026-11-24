@@ -7,6 +7,7 @@ import {
   Mic, MicOff, RotateCcw, X
 } from 'lucide-react';
 import { speakWord } from '../utils/speech';
+import { clickableProps } from '../utils/a11y';
 import {
   SpokenCheck,
   checkSpoken,
@@ -18,9 +19,22 @@ import {
 import { SayNestBird } from './SayNestBird';
 import { SpokenCheckResult } from './SpokenCheckResult';
 
+// Saved phrases with no category tag are listed under "Other" in My Saved
+const OTHER_CATEGORY = { id: 'other', name: 'Other', count: 0, description: '', examples: [] as WordEntry[] };
+
+// Whether a saved expression belongs to a category. Tags may use the id
+// ("cause-reason"), a slash form ("cause/reason") or the name.
+const inCategory = (w: WordEntry, cat: { id: string; name: string }) =>
+  (w.tags || []).some((t) => {
+    const tag = t.toLowerCase().replace(/\//g, '-');
+    return tag === cat.id || tag === cat.name.toLowerCase().replace(/\s*\/\s*|\s+/g, '-');
+  });
+
 interface ExpressionsScreenProps {
   userSavedTransitions: WordEntry[];
   onSelectWord: (word: WordEntry) => void;
+  /** Look up a phrase that isn't in the catalog */
+  onSearchLookup?: (phrase: string) => void;
   onOpenSaveModal: (word: WordEntry) => void;
   onBackToHome?: () => void;
   onAddCustomExpression: (expr: WordEntry) => void;
@@ -29,6 +43,7 @@ interface ExpressionsScreenProps {
 export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
   userSavedTransitions,
   onSelectWord,
+  onSearchLookup,
   onOpenSaveModal,
   onBackToHome,
   onAddCustomExpression
@@ -51,6 +66,8 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
   const [dictatingTarget, setDictatingTarget] = useState<'phrase' | 'meaning' | 'example' | null>(null);
   const [rawSpokenText, setRawSpokenText] = useState('');
   const [cleanedSpokenText, setCleanedSpokenText] = useState('');
+  // Shown in the form instead of a browser alert (or silently failing)
+  const [dictationError, setDictationError] = useState<string | null>(null);
   const dictationRecognitionRef = useRef<any>(null);
 
   // Speech-to-Text Practice in Detail Card
@@ -59,8 +76,18 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
   const [practiceError, setPracticeError] = useState<string | null>(null);
   const practiceRecognitionRef = useRef<any>(null);
 
+  // Saved expressions that don't fit any category
+  const uncategorizedSaved = userSavedTransitions.filter(w => !TRANSITION_CATEGORIES.some(c => inCategory(w, c)));
+  const showOther = activeSourceTab === 'my-saved' && uncategorizedSaved.length > 0;
+  const categoryList = showOther ? [...TRANSITION_CATEGORIES, OTHER_CATEGORY] : TRANSITION_CATEGORIES;
+
   // Find active category
-  const activeCategory = TRANSITION_CATEGORIES.find(c => c.id === selectedCategoryId) || TRANSITION_CATEGORIES[0];
+  const activeCategory = categoryList.find(c => c.id === selectedCategoryId) || TRANSITION_CATEGORIES[0];
+
+  // "Other" only exists in My Saved; leaving it falls back to the first category
+  useEffect(() => {
+    if (selectedCategoryId === 'other' && !showOther) setSelectedCategoryId(TRANSITION_CATEGORIES[0].id);
+  }, [selectedCategoryId, showOther]);
 
   // Selected expression within category
   const [selectedExpression, setSelectedExpression] = useState<WordEntry>(() => {
@@ -83,17 +110,13 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
   });
 
   // Calculate dynamic category counts so they strictly align with available entries
-  const getCategoryCount = (category: typeof TRANSITION_CATEGORIES[0]) => {
-    if (activeSourceTab === 'catalog') {
-      return category.examples.length;
-    }
-    return userSavedTransitions.filter(w => 
-      w.tags?.includes(category.id) || 
-      w.tags?.includes(category.name.toLowerCase()) || 
-      w.tags?.includes('transition') || 
-      w.type === 'transition'
-    ).length;
-  };
+  // (It used to count every saved transition in every category, because any
+  // word tagged "transition" matched, so all the counts were the same.)
+  const savedInCategory = (category: { id: string; name: string }) =>
+    category.id === 'other' ? uncategorizedSaved : userSavedTransitions.filter(w => inCategory(w, category));
+
+  const getCategoryCount = (category: typeof TRANSITION_CATEGORIES[0]) =>
+    activeSourceTab === 'catalog' ? category.examples.length : savedInCategory(category).length;
 
   // Strip leading verbal artifacts like "the transition is", "the transition", "the expression is"
   const cleanSpokenPhrase = (raw: string) => {
@@ -113,9 +136,10 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
   const startFieldDictation = (field: 'phrase' | 'meaning' | 'example') => {
     if (typeof window === 'undefined') return;
     if (!('SpeechRecognition' in window) && !('webkitSpeechRecognition' in window)) {
-      alert('Speech recognition is not supported in this browser.');
+      setDictationError(UNSUPPORTED_MESSAGE);
       return;
     }
+    setDictationError(null);
 
     try {
       if (dictationRecognitionRef.current) {
@@ -164,9 +188,9 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
       };
 
       rec.onerror = (e: any) => {
-        console.warn('Dictation error:', e.error);
         setIsDictating(false);
         setDictatingTarget(null);
+        if (e.error !== 'aborted') setDictationError(recognitionErrorMessage(e.error));
       };
 
       rec.onend = () => {
@@ -262,10 +286,11 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
       id: `custom-expr-${Date.now()}`,
       word: newPhrase.trim(),
       type: 'transition',
-      phonetic: `/${newPhrase.trim().toLowerCase()}/`,
+      // No made-up pronunciation; the phrase is read aloud by the voice instead
+      phonetic: '',
       accents: [
-        { accent: 'British', ipa: `/${newPhrase.trim().toLowerCase()}/`, flag: '🇬🇧', langCode: 'en-GB' },
-        { accent: 'American', ipa: `/${newPhrase.trim().toLowerCase()}/`, flag: '🇺🇸', langCode: 'en-US' }
+        { accent: 'British', ipa: '', flag: '🇬🇧', langCode: 'en-GB' },
+        { accent: 'American', ipa: '', flag: '🇺🇸', langCode: 'en-US' }
       ],
       meanings: [
         {
@@ -304,11 +329,7 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
   // Expressions displayed based on tab (Curated catalog vs My saved transitions)
   const baseList: WordEntry[] = activeSourceTab === 'catalog'
     ? activeCategory.examples
-    : userSavedTransitions.filter(w => 
-        w.tags?.includes(selectedCategoryId) || 
-        w.tags?.includes('transition') || 
-        w.type === 'transition'
-      );
+    : savedInCategory(activeCategory);
 
   const displayedExpressions: WordEntry[] = baseList.filter(expr => {
     if (!searchQuery.trim()) return true;
@@ -320,7 +341,7 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
   });
 
   return (
-    <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-20">
+    <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-36 md:pb-20">
       {/* Sticky Pinned Top Navigation Bar - Never disappears on scroll! */}
       <div className="sticky top-0 z-30 bg-[#FFE042]/95 backdrop-blur-md px-5 py-3 border-b border-stone-900/10 flex items-center justify-between shadow-2xs">
         <div className="flex items-center gap-3">
@@ -412,7 +433,7 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
           </div>
 
           <div className="flex md:flex-col gap-1.5 overflow-x-auto pb-2 md:pb-0 no-scrollbar">
-            {TRANSITION_CATEGORIES.map((cat) => {
+            {categoryList.map((cat) => {
               const isSelected = selectedCategoryId === cat.id;
               return (
                 <button
@@ -484,8 +505,8 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
                 return (
                   <div
                     key={expr.id || expr.word}
-                    onClick={() => setSelectedExpression(expr)}
-                    className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex items-center justify-between gap-2 ${
+                    {...clickableProps(() => setSelectedExpression(expr))}
+                    className={`focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 p-3.5 rounded-2xl border cursor-pointer transition-all flex items-center justify-between gap-2 ${
                       isSelected
                         ? 'bg-[#FAF6EC] border-[#FFE042] ring-2 ring-[#FFE042]/60 shadow-xs'
                         : 'bg-white hover:bg-stone-50 border-stone-200'
@@ -605,14 +626,19 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
                     <button
                       key={rel.phrase}
                       onClick={() => {
-                        setSelectedExpression({
-                          ...selectedExpression,
-                          word: rel.phrase,
-                          meanings: [{
-                            partOfSpeech: 'transition',
-                            definitions: [{ definition: `Related rhetorical phrasing: ${rel.relation}` }]
-                          }]
-                        });
+                        // Open the real entry: from the catalog if it's there,
+                        // otherwise look it up. (This used to make up an entry
+                        // reusing the previous expression's example and notes.)
+                        const target = rel.phrase.toLowerCase();
+                        for (const cat of TRANSITION_CATEGORIES) {
+                          const match = cat.examples.find(e => e.word.toLowerCase() === target);
+                          if (match) {
+                            setSelectedCategoryId(cat.id);
+                            setSelectedExpression(match);
+                            return;
+                          }
+                        }
+                        onSearchLookup?.(rel.phrase);
                       }}
                       className="w-full p-2.5 bg-white hover:bg-stone-50 rounded-xl border border-stone-200 flex items-center justify-between text-xs font-semibold text-stone-800 transition-colors"
                     >
@@ -728,6 +754,11 @@ export const ExpressionsScreen: React.FC<ExpressionsScreenProps> = ({
                   placeholder="e.g. As a matter of course, On the flip side..."
                   className="w-full p-2.5 bg-white rounded-xl border border-stone-200 text-xs font-semibold text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FFE042]"
                 />
+                {dictationError && (
+                  <div role="alert" className="mt-1.5 p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-900">
+                    {dictationError}
+                  </div>
+                )}
                 {/* Live Speech Feedback & Automatic "the transition" Prefix Stripping */}
                 {rawSpokenText && (
                   <div className="mt-1.5 p-2.5 bg-[#FAF6EC] border border-amber-200/70 rounded-xl text-[11px] text-stone-800 space-y-1 animate-in fade-in">

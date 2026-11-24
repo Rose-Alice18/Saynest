@@ -5,6 +5,7 @@ import {
   BookOpen, Quote, Sparkles, Bookmark, History, Plus, Check, Clock, Trash2, Download
 } from 'lucide-react';
 import { speakWord } from '../utils/speech';
+import { clickableProps } from '../utils/a11y';
 import { SayNestBird } from './SayNestBird';
 import { ExportModal } from './ExportModal';
 import { dateGroup } from '../utils/review';
@@ -116,7 +117,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   };
 
   return (
-    <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-28">
+    <div className="flex flex-col min-h-full bg-[#FFFDF7] text-stone-900 pb-36 md:pb-28">
       {/* Search Header */}
       <div className="sticky top-0 z-20 bg-[#FFFDF7]/95 backdrop-blur-md px-5 pt-4 pb-3 border-b border-stone-200/60 space-y-3">
         {/* Top Segmented Mode: Search History first, then Saved Library */}
@@ -379,8 +380,8 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                   return (
                     <div
                       key={item.id}
-                      onClick={() => onSelectWord(item)}
-                      className="p-4 bg-white hover:bg-stone-50/80 rounded-2xl border border-stone-200/80 shadow-xs cursor-pointer transition-all hover:border-stone-300 flex items-start justify-between gap-3 group"
+                      {...clickableProps(() => onSelectWord(item))}
+                      className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 p-4 bg-white hover:bg-stone-50/80 rounded-2xl border border-stone-200/80 shadow-xs cursor-pointer transition-all hover:border-stone-300 flex items-start justify-between gap-3 group"
                     >
                       <div className="flex items-start gap-3.5 flex-1 min-w-0">
                         <button
@@ -484,8 +485,8 @@ const WordCard: React.FC<WordCardProps> = ({
 
   return (
     <div
-      onClick={onSelect}
-      className="p-4 bg-white hover:bg-stone-50/80 rounded-2xl border border-stone-200/80 shadow-xs cursor-pointer transition-all hover:border-stone-300 relative group"
+      {...clickableProps(onSelect)}
+      className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 p-4 bg-white hover:bg-stone-50/80 rounded-2xl border border-stone-200/80 shadow-xs cursor-pointer transition-all hover:border-stone-300 relative group"
     >
       <div className="flex items-start justify-between gap-3">
         {/* Left Side: Audio Button + Title & Details */}

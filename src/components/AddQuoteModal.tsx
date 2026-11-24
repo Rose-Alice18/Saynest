@@ -13,11 +13,11 @@ export const AddQuoteModal: React.FC<AddQuoteModalProps> = ({
   onClose,
   onSaveQuote
 }) => {
-  const [quoteText, setQuoteText] = useState(
-    '“I declare after all there is no enjoyment like reading!”'
-  );
-  const [author, setAuthor] = useState('Jane Austen');
-  const [work, setWork] = useState('Pride and Prejudice, Chapter 11');
+  // Start empty (it used to open pre-filled with a Jane Austen quote);
+  // the work defaults to the book you're currently reading
+  const [quoteText, setQuoteText] = useState('');
+  const [author, setAuthor] = useState(collections[0]?.author || '');
+  const [work, setWork] = useState(collections[0]?.title || '');
   const [selectedCollectionId, setSelectedCollectionId] = useState(collections[0]?.id || '');
 
   const handleSave = () => {
@@ -139,7 +139,8 @@ export const AddQuoteModal: React.FC<AddQuoteModalProps> = ({
         <div className="pt-2">
           <button
             onClick={handleSave}
-            className="w-full py-3 bg-[#FFE042] hover:bg-[#F7D836] text-stone-900 font-bold text-sm rounded-2xl shadow-sm flex items-center justify-center gap-2"
+            disabled={!quoteText.trim()}
+            className="w-full py-3 bg-[#FFE042] hover:bg-[#F7D836] disabled:opacity-50 disabled:cursor-not-allowed text-stone-900 font-bold text-sm rounded-2xl shadow-sm flex items-center justify-center gap-2"
           >
             <Bookmark className="w-4 h-4 fill-stone-900" />
             <span>Save Quote to Library</span>

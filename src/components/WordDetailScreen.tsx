@@ -5,6 +5,7 @@ import {
   Headphones, ChevronRight, Check, Share2, Sparkles, Plus, Star, Search
 } from 'lucide-react';
 import { speakWord } from '../utils/speech';
+import { clickableProps } from '../utils/a11y';
 import { SayNestBird } from './SayNestBird';
 
 interface WordDetailScreenProps {
@@ -462,8 +463,8 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
             {(word.relatedExpressions || []).map((rel, i) => (
               <div
                 key={i}
-                onClick={() => onSearchLookup?.(rel.phrase)}
-                className="p-3.5 bg-white rounded-2xl border border-stone-200/90 shadow-2xs flex items-center justify-between gap-3 hover:border-amber-300 hover:bg-amber-50/40 cursor-pointer transition-all group"
+                {...clickableProps(() => onSearchLookup?.(rel.phrase))}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 p-3.5 bg-white rounded-2xl border border-stone-200/90 shadow-2xs flex items-center justify-between gap-3 hover:border-amber-300 hover:bg-amber-50/40 cursor-pointer transition-all group"
               >
                 <div className="flex items-center gap-3">
                   <button
@@ -495,8 +496,8 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
 
         {/* Practise Pronunciation Card (Matching Mockup exactly!) */}
         <div 
-          onClick={() => onOpenPractice(word)}
-          className="bg-[#FAF6EC] hover:bg-[#F5EEDC] cursor-pointer p-4 rounded-2xl border border-stone-200 flex items-center justify-between transition-all group"
+          {...clickableProps(() => onOpenPractice(word))}
+          className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 bg-[#FAF6EC] hover:bg-[#F5EEDC] cursor-pointer p-4 rounded-2xl border border-stone-200 flex items-center justify-between transition-all group"
         >
           <div className="flex items-center gap-3.5">
             <div className="w-11 h-11 rounded-full bg-[#FFE042] flex items-center justify-center shrink-0">
