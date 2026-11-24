@@ -9,6 +9,8 @@ interface HeaderNavProps {
   onOpenCommuteMode: () => void;
   onQuickAdd: () => void;
   reviewDueCount?: number;
+  /** Sign-in / account button, when accounts are set up */
+  accountSlot?: React.ReactNode;
 }
 
 export const HeaderNav: React.FC<HeaderNavProps> = ({
@@ -16,7 +18,8 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   onTabChange,
   onOpenCommuteMode,
   onQuickAdd,
-  reviewDueCount = 7
+  reviewDueCount = 7,
+  accountSlot
 }) => {
   const navItems: { tab: MainTab; label: string; icon: React.ElementType }[] = [
     { tab: 'Home', label: 'Home', icon: Home },
@@ -93,6 +96,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             <Headphones className="w-4 h-4 stroke-[2.5]" />
             <span>Commute Audio</span>
           </button>
+          {accountSlot}
         </div>
       </div>
     </header>

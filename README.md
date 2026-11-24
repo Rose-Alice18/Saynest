@@ -63,3 +63,36 @@ Any Node host works (for example Render or Railway):
 - **Environment variables:** `NODE_ENV=production`, plus `GEMINI_API_KEY` and/or `OPENAI_API_KEY`
 
 The server listens on the `PORT` the host provides, or 3000 by default.
+
+## Accounts and syncing (Firebase)
+
+Saved words, search history and collections are kept in the browser and, when
+someone signs in, mirrored to Firestore so they match on every device.
+Sign-in is Google or email + password (Firebase Authentication, free Spark plan).
+
+Setup, once:
+
+1. In the [Firebase console](https://console.firebase.google.com), create a
+   project and add a **Web app**. Copy its `firebaseConfig` into
+   [`src/firebaseConfig.ts`](src/firebaseConfig.ts). These values are public;
+   they only identify the project.
+2. **Authentication → Sign-in method**: enable **Google** and **Email/Password**.
+3. **Authentication → Settings → Authorized domains**: add every address the app
+   is served from (for example `saynest.me`, `www.saynest.me` and the
+   `herokuapp.com` address). `localhost` is there already.
+4. **Firestore Database**: create it, then set these **Rules**, so each person
+   can only read and write their own data:
+
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /users/{uid}/{document=**} {
+         allow read, write: if request.auth != null && request.auth.uid == uid;
+       }
+     }
+   }
+   ```
+
+While `firebaseConfig` is `null`, the sign-in button is hidden and everything
+stays in the browser only.

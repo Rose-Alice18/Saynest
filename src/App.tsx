@@ -16,6 +16,9 @@ import { SaveModal } from './components/SaveModal';
 import { PronunciationModal } from './components/PronunciationModal';
 import { ScanPageModal, PAGE_DISCOVERIES } from './components/ScanPageModal';
 import { AddQuoteModal } from './components/AddQuoteModal';
+import { AccountModal } from './components/AccountModal';
+import { AccountButton } from './components/AccountButton';
+import { isCloudEnabled, useAuthUser, useCloudSync, signOut } from './utils/cloudSync';
 import { QuickAddModal } from './components/QuickAddModal';
 import { BookSearchModal } from './components/BookSearchModal';
 
@@ -80,6 +83,27 @@ export default function App() {
       console.warn('History storage save error:', e);
     }
   }, [searchHistory]);
+
+  // Accounts and syncing (only when Firebase is set up)
+  const { user } = useAuthUser();
+  const { status: syncStatus, lastSyncedAt } = useCloudSync(user, {
+    words, setWords, history: searchHistory, setHistory: setSearchHistory, collections, setCollections
+  });
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const accountSlot = isCloudEnabled ? (
+    <AccountButton user={user} syncStatus={syncStatus} onClick={() => setIsAccountOpen(true)} />
+  ) : null;
+
+  const handleSignOut = async () => {
+    await signOut();
+    // The words live in the account now; leave this device as a fresh start
+    setWords(INITIAL_WORDS);
+    setCollections(INITIAL_COLLECTIONS);
+    setSearchHistory(INITIAL_WORDS.map((w, idx) => ({ ...w, searchedAt: new Date(Date.now() - idx * 3600000).toISOString() })));
+    setActiveWordDetail(null);
+    setIsAccountOpen(false);
+    showToast('Signed out. Your words are safe in your account.');
+  };
 
   // Navigation State with Memory of Previous Collection & Page
   const [currentTab, setCurrentTab] = useState<MainTab>('Home');
@@ -620,6 +644,7 @@ export default function App() {
           setIsCommuteMode(true);
         }}
         onQuickAdd={() => setIsQuickAddOpen(true)}
+        accountSlot={accountSlot}
         reviewDueCount={reviewDueCount}
       />
 
@@ -673,6 +698,7 @@ export default function App() {
             {currentTab === 'Home' && (
               <HomeScreen
                 recentWords={searchHistory}
+                accountSlot={accountSlot}
                 savedWords={words}
                 collections={collections}
                 onSearchLookup={handleSearchLookup}
@@ -821,6 +847,16 @@ export default function App() {
             onSaveExtractedWord={handleSaveExtractedWord}
           />
         </div>
+      )}
+
+      {isAccountOpen && (
+        <AccountModal
+          user={user}
+          syncStatus={syncStatus}
+          lastSyncedAt={lastSyncedAt}
+          onClose={() => setIsAccountOpen(false)}
+          onSignOut={handleSignOut}
+        />
       )}
 
       {isAddQuoteOpen && (

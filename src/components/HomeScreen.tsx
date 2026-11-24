@@ -31,6 +31,8 @@ interface HomeScreenProps {
   isLoadingLookup?: boolean;
   reviewDueCount: number;
   reviewMinutes: number;
+  /** Sign-in / account button for phones (the top bar handles laptops) */
+  accountSlot?: React.ReactNode;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -50,7 +52,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenCommuteMode,
   isLoadingLookup = false,
   reviewDueCount,
-  reviewMinutes
+  reviewMinutes,
+  accountSlot
 }) => {
   const [searchInput, setSearchInput] = useState('');
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
@@ -108,7 +111,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 SayNest
               </span>
             </div>
-
+            {accountSlot}
           </div>
 
           {/* Hero Title & Authentic Chick Illustration */}
