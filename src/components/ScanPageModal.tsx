@@ -21,6 +21,10 @@ interface ScanPageModalProps {
   onClose: () => void;
   /** First one is the book being read now */
   collections: Collection[];
+  /** Text shared from another app (e.g. Apple Books): filled in and read straight away */
+  initialText?: string;
+  /** The book that text came from, if the app said */
+  sharedBook?: { title: string; author?: string };
   /** Creates a collection and returns its id */
   onCreateCollection: (title: string) => string;
   onDefineWord: (word: string) => void;
@@ -106,6 +110,8 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
   onClose,
   collections,
   onCreateCollection,
+  initialText,
+  sharedBook,
   onDefineWord,
   onSaveExtractedWord,
 }) => {
@@ -126,8 +132,18 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
   // Where found words are saved. A photo of your book goes to the book you're
   // reading; pasted text could be from anywhere, so it starts with no collection.
   const readingNow = collections[0];
-  const [saveTarget, setSaveTarget] = useState<string>(initialTab === 'paste' ? '' : readingNow?.id || '');
-  const [saveTargetChosen, setSaveTargetChosen] = useState(false);
+  // Text shared from a book you already have as a collection is saved into it
+  const sharedBookCollection = sharedBook
+    ? collections.find((c) => {
+        const a = c.title.toLowerCase();
+        const b = sharedBook.title.toLowerCase();
+        return a === b || b.startsWith(a) || a.startsWith(b);
+      })
+    : undefined;
+  const [saveTarget, setSaveTarget] = useState<string>(
+    sharedBookCollection ? sharedBookCollection.id : initialTab === 'paste' ? '' : readingNow?.id || ''
+  );
+  const [saveTargetChosen, setSaveTargetChosen] = useState(!!sharedBookCollection);
   const [newCollectionName, setNewCollectionName] = useState<string | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   // Phones and tablets have a touch screen as their main pointer
@@ -200,6 +216,12 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
     }
   };
 
+  // Shared text: read it straight away instead of waiting for "Find words"
+  React.useEffect(() => {
+    if (initialText?.trim()) handleExtract();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const saveExtracted = (item: ExtractedWord) => {
     onSaveExtractedWord(item.word, item.contextSentence || '', item.word.includes(' ') ? 'phrase' : 'word', {
       definition: item.briefMeaning,
@@ -216,7 +238,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
   );
   const [isSelectAll, setIsSelectAll] = useState(false);
   const [selectedBatch, setSelectedBatch] = useState<string[]>([]);
-  const [pastedText, setPastedText] = useState('');
+  const [pastedText, setPastedText] = useState(initialText || '');
   // Read a passage aloud instead of typing it
   const dictation = useDictation((spoken) => setPastedText((prev) => appendSpoken(prev, spoken)));
   const [activeThumbnail, setActiveThumbnail] = useState(0);
@@ -285,7 +307,7 @@ export const ScanPageModal: React.FC<ScanPageModalProps> = ({
             value={saveTarget}
             onChange={(e) => {
               if (e.target.value === '__new__') {
-                setNewCollectionName('');
+                setNewCollectionName(sharedBook && !sharedBookCollection ? sharedBook.title : '');
                 return;
               }
               setSaveTarget(e.target.value);

@@ -19,6 +19,7 @@ import { AddQuoteModal } from './components/AddQuoteModal';
 import { AccountModal } from './components/AccountModal';
 import { AccountButton } from './components/AccountButton';
 import { isCloudEnabled, useAuthUser, useCloudSync, signOut } from './utils/cloudSync';
+import { takeSharedTextFromUrl } from './utils/sharedText';
 import { QuickAddModal } from './components/QuickAddModal';
 import { BookSearchModal } from './components/BookSearchModal';
 
@@ -141,9 +142,12 @@ export default function App() {
   // "Paste text" and "Scan a page" share a modal; this picks its starting tab
   const [scanPageTab, setScanPageTab] = useState<'scan' | 'paste'>('scan');
   const openScanPage = (tab: 'scan' | 'paste') => {
+    setSharedPaste(null);
     setScanPageTab(tab);
     setIsScanPageOpen(true);
   };
+  // A passage shared from another app, waiting in Paste text
+  const [sharedPaste, setSharedPaste] = useState<{ id: number; text: string; book?: { title: string; author?: string } } | null>(null);
   const [isAddQuoteOpen, setIsAddQuoteOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isBookSearchOpen, setIsBookSearchOpen] = useState(false);
@@ -592,6 +596,25 @@ export default function App() {
     setCanGoBack(true);
   }, [navKey, activeWordDetail]);
 
+  // Text shared from another app (iPhone Shortcut or Android share menu):
+  // look up a word, or scan a passage for words worth learning
+  useEffect(() => {
+    const shared = takeSharedTextFromUrl();
+    if (!shared) return;
+    if (shared.kind === 'lookup') {
+      handleSearchLookup(shared.text);
+    } else {
+      setScanPageTab('paste');
+      setSharedPaste({
+        id: Date.now(),
+        text: shared.text,
+        book: shared.book ? { title: shared.book, author: shared.author } : undefined
+      });
+      setScanModal('open');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const onPopState = (e: PopStateEvent) => {
       const s = e.state as NavSnapshot | null;
@@ -841,8 +864,14 @@ export default function App() {
         // Hidden rather than unmounted while a word from it is open
         <div hidden={scanModal === 'hidden'}>
           <ScanPageModal
+            key={sharedPaste?.id ?? 'scan'}
             initialTab={scanPageTab}
-            onClose={() => setScanModal('closed')}
+            initialText={sharedPaste?.text}
+            sharedBook={sharedPaste?.book}
+            onClose={() => {
+              setScanModal('closed');
+              setSharedPaste(null);
+            }}
             collections={collections}
             onCreateCollection={(title) => handleCreateCollection(title)}
             onDefineWord={(w) => {
