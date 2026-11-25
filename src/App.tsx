@@ -300,7 +300,13 @@ export default function App() {
       }
     } catch (err) {
       console.error('Lookup failed:', err);
-      if (seq === lookupSeq.current) showToast('Could not fetch word details. Please try again.');
+      if (seq === lookupSeq.current) {
+        showToast(
+          navigator.onLine
+            ? 'Could not fetch word details. Please try again.'
+            : "You're offline. Looking up new words needs internet; your saved words still work."
+        );
+      }
     } finally {
       if (seq === lookupSeq.current) {
         setIsLoadingLookup(false);

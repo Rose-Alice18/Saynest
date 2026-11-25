@@ -540,7 +540,7 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
       </div>
 
       {/* Sticky Bottom Actions Bar matching mockup */}
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md p-4 bg-[#FFFDF7]/95 backdrop-blur-md border-t border-stone-200/80 z-30 flex items-center gap-3">
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-[#FFFDF7]/95 backdrop-blur-md border-t border-stone-200/80 z-30 flex items-center gap-3">
         <button
           onClick={() => onOpenSaveModal(word)}
           className={`flex-1 py-3 px-4 font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-[0.98] ${
