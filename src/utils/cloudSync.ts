@@ -44,8 +44,15 @@ let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
 
+// On the live site, run Google sign-in on our own address (the server passes
+// /__/auth/* through to Firebase). Safari on iPhone blocks the sign-in if it
+// happens on a different site (firebaseapp.com) from the app.
+const LIVE_HOSTS = ['saynest.me', 'saynest-43dd8710a441.herokuapp.com'];
+const sameSiteAuthDomain =
+  typeof window !== 'undefined' && LIVE_HOSTS.includes(window.location.hostname) ? window.location.host : null;
+
 if (firebaseConfig) {
-  app = initializeApp(firebaseConfig);
+  app = initializeApp({ ...firebaseConfig, authDomain: sameSiteAuthDomain || firebaseConfig.authDomain });
   auth = getAuth(app);
   db = getFirestore(app);
 }

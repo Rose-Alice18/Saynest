@@ -3,6 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
+import { firebaseConfig } from './src/firebaseConfig';
 
 // .env.local (your private keys) takes priority over .env
 dotenv.config({ path: ['.env.local', '.env'], quiet: true });
@@ -18,9 +19,55 @@ if (process.env.NODE_ENV === 'production') {
     if (req.headers['x-forwarded-proto'] === 'http') {
       return res.redirect(301, `https://${req.headers.host}${req.originalUrl}`);
     }
+    // One address for the site, so Google sign-in only needs it registered once
+    if (req.headers.host === 'www.saynest.me') {
+      return res.redirect(301, `https://saynest.me${req.originalUrl}`);
+    }
     next();
   });
 }
+
+// ---------------------------------------------------------------------------
+// Google sign-in helper pages
+//
+// Firebase's sign-in step runs on <project>.firebaseapp.com. Safari on iPhone
+// keeps each site's storage separate, so when that page hands back to
+// saynest.me the sign-in "state" is missing and it fails. Serving those pages
+// from our own address (Firebase's recommended fix) keeps it all on one site.
+const FIREBASE_AUTH_ORIGIN = 'https://saynest.firebaseapp.com';
+// Firebase Hosting normally serves this file; we don't use Hosting, so serve it
+// here from the same public web config the app uses
+app.get('/__/firebase/init.json', (req, res) => {
+  if (!firebaseConfig) return res.status(404).json({ error: 'Firebase is not configured' });
+  res.json({ ...firebaseConfig, authDomain: req.headers.host || firebaseConfig.authDomain });
+});
+app.all(['/__/auth/*', '/__/firebase/*'], express.raw({ type: '*/*', limit: '1mb' }), async (req, res) => {
+  try {
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (typeof value !== 'string') continue;
+      if (['host', 'connection', 'content-length', 'accept-encoding'].includes(key)) continue;
+      if (key.startsWith('x-forwarded') || key === 'x-request-id' || key === 'x-request-start' || key === 'via') continue;
+      headers[key] = value;
+    }
+    const hasBody = !['GET', 'HEAD'].includes(req.method) && Buffer.isBuffer(req.body) && req.body.length > 0;
+    const upstream = await fetch(FIREBASE_AUTH_ORIGIN + req.originalUrl, {
+      method: req.method,
+      headers,
+      body: hasBody ? req.body : undefined,
+      redirect: 'manual'
+    });
+    res.status(upstream.status);
+    upstream.headers.forEach((value, key) => {
+      if (['content-encoding', 'content-length', 'transfer-encoding', 'connection'].includes(key)) return;
+      res.setHeader(key, value);
+    });
+    res.send(Buffer.from(await upstream.arrayBuffer()));
+  } catch (err) {
+    console.error('Sign-in helper proxy failed:', err);
+    res.status(502).send('Sign-in is unavailable right now. Please try again.');
+  }
+});
 
 // Page photos are sent as base64 JSON, so that one route allows a larger body.
 // Everything else keeps Express's small default.
