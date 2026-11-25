@@ -11,13 +11,14 @@
 //   This material may be protected by copyright.
 //
 // so the book and author are taken from that and the rest is removed.
+import { looksLikeWordList } from './wordList';
 
 export interface SharedText {
   text: string;
   book?: string;
   author?: string;
   /** A word or short phrase is looked up; anything longer is scanned for words */
-  kind: 'lookup' | 'passage';
+  kind: 'lookup' | 'passage' | 'list';
 }
 
 const QUOTES = /^[\s"'“”‘’«»]+|[\s"'“”‘’«»]+$/g;
@@ -42,6 +43,8 @@ export function parseSharedText(raw: string): SharedText | null {
 
   // A link on its own line (some apps add one) isn't part of the text
   text = text.replace(/\n\s*https?:\/\/\S+\s*$/i, '').trim();
+  // A list of words (one per line), e.g. a note of vocabulary: keep its lines
+  if (looksLikeWordList(text)) return { text, book, author, kind: 'list' };
   text = text.replace(QUOTES, '').replace(/\s+/g, ' ').trim();
   if (!text) return null;
 

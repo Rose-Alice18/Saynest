@@ -63,6 +63,8 @@ export interface WordEntry {
   isStarred?: boolean;
   chapter?: string;
   searchedAt?: string;
+  /** Imported from a list: meaning, pronunciation and examples still to be looked up */
+  pendingDetails?: boolean;
   reviewStatus?: {
     dueForReview: boolean;
     intervalDays: number;

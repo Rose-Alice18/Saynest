@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { WordEntry } from '../types';
 import { 
   Search, Volume2, Star, MoreVertical, SlidersHorizontal, 
-  BookOpen, Quote, Sparkles, Bookmark, History, Plus, Check, Clock, Trash2, Download, X
+  BookOpen, Quote, Sparkles, Bookmark, History, Plus, Check, Clock, Trash2, Download, X, ListChecks
 } from 'lucide-react';
 import { speakWord } from '../utils/speech';
 import { clickableProps } from '../utils/a11y';
@@ -21,6 +21,7 @@ interface LibraryScreenProps {
   onDeleteWord: (wordId: string) => void;
   onSaveFromHistory?: (word: WordEntry) => void;
   onClearHistory?: () => void;
+  onOpenImportList?: () => void;
 }
 
 export const LibraryScreen: React.FC<LibraryScreenProps> = ({
@@ -32,7 +33,8 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   onToggleStar,
   onDeleteWord,
   onSaveFromHistory,
-  onClearHistory
+  onClearHistory,
+  onOpenImportList
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'All' | 'Starred' | 'Words' | 'Phrases' | 'Transitions' | 'Quotes'>('All');
@@ -198,6 +200,17 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
               })}
             </div>
 
+            {onOpenImportList && (
+              <button
+                type="button"
+                onClick={onOpenImportList}
+                className="py-1.5 px-3 rounded-full text-xs font-semibold bg-[#FAF6EC] hover:bg-[#FFE042] text-stone-800 border border-stone-200/80 flex items-center gap-1 shrink-0 transition-all shadow-2xs"
+                title="Save a whole list of words at once"
+              >
+                <ListChecks className="w-3.5 h-3.5 text-stone-700" />
+                <span>Import</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setIsExportModalOpen(true)}
@@ -254,6 +267,17 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
             </div>
 
             <div className="flex items-center gap-2.5">
+              {onOpenImportList && (
+                <button
+                  type="button"
+                  onClick={onOpenImportList}
+                  className="py-1 px-2.5 rounded-xl text-xs font-semibold bg-[#FAF6EC] hover:bg-[#FFE042] text-stone-800 border border-stone-200/80 transition-colors flex items-center gap-1 shadow-2xs"
+                  title="Save a whole list of words at once"
+                >
+                  <ListChecks className="w-3 h-3 text-stone-700" />
+                  <span>Import</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setIsExportModalOpen(true)}

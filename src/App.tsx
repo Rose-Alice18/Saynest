@@ -17,6 +17,8 @@ import { PronunciationModal } from './components/PronunciationModal';
 import { ScanPageModal, PAGE_DISCOVERIES } from './components/ScanPageModal';
 import { AddQuoteModal } from './components/AddQuoteModal';
 import { AccountModal } from './components/AccountModal';
+import { ImportListModal } from './components/ImportListModal';
+import type { ListedWord } from './utils/wordList';
 import { AccountButton } from './components/AccountButton';
 import { isCloudEnabled, useAuthUser, useCloudSync, signOut } from './utils/cloudSync';
 import { takeSharedTextFromUrl } from './utils/sharedText';
@@ -146,6 +148,8 @@ export default function App() {
     setScanPageTab(tab);
     setIsScanPageOpen(true);
   };
+  // Import a word list: null = closed, otherwise the text to start with
+  const [importText, setImportText] = useState<string | null>(null);
   // A passage shared from another app, waiting in Paste text
   const [sharedPaste, setSharedPaste] = useState<{ id: number; text: string; book?: { title: string; author?: string } } | null>(null);
   const [isAddQuoteOpen, setIsAddQuoteOpen] = useState(false);
@@ -347,6 +351,98 @@ export default function App() {
 
     showToast(`Saved "${updatedWord.word}" to your nest!`);
   };
+
+  // ---------------------------------------------------------------------------
+  // Importing a list of words
+  //
+  // Words are saved straight away with whatever meaning came with them, then
+  // looked up in the background (a few at a time) to add pronunciation,
+  // examples and full meanings. Anything unfinished is picked up again the
+  // next time the app opens.
+  const wordsRef = useRef(words);
+  wordsRef.current = words;
+  const enrichingIds = useRef(new Set<string>());
+
+  const enrichWords = async (entries: WordEntry[]) => {
+    const queue = entries.filter((e) => !enrichingIds.current.has(e.id));
+    if (!queue.length) return;
+    queue.forEach((e) => enrichingIds.current.add(e.id));
+    let done = 0;
+    const update = (id: string, fn: (w: WordEntry) => WordEntry) =>
+      setWords((prev) => prev.map((w) => (w.id === id ? fn(w) : w)));
+
+    const worker = async () => {
+      while (queue.length) {
+        const entry = queue.shift()!;
+        try {
+          const full = await lookupWord(entry.word);
+          if (full.spellingFix) {
+            update(entry.id, (w) => ({
+              ...w,
+              pendingDetails: false,
+              userNote: [w.userNote, `"${w.word}" isn't in the dictionary. Did you mean "${full.spellingFix!.to}"?`].filter(Boolean).join('\n')
+            }));
+          } else if (full.source === 'fallback') {
+            update(entry.id, (w) => ({ ...w, pendingDetails: false }));
+          } else {
+            update(entry.id, (w) => ({ ...withAiContent(w, full.entry), pendingDetails: false }));
+          }
+          done++;
+        } catch {
+          // Offline or the server is busy: leave it for next time
+        } finally {
+          enrichingIds.current.delete(entry.id);
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    if (done) showToast(`Added meanings and pronunciation for ${done} ${done === 1 ? 'word' : 'words'}`);
+  };
+
+  const handleImportWords = (items: ListedWord[], collectionId: string) => {
+    const now = Date.now();
+    const entries: WordEntry[] = items.map((item, i) => {
+      const isPhrase = item.word.includes(' ');
+      return {
+        id: `import-${now}-${i}`,
+        word: item.word,
+        type: isPhrase ? 'phrase' : 'word',
+        phonetic: '',
+        accents: [
+          { accent: 'British', ipa: '', flag: '🇬🇧', langCode: 'en-GB' },
+          { accent: 'American', ipa: '', flag: '🇺🇸', langCode: 'en-US' }
+        ],
+        meanings: [
+          {
+            partOfSpeech: isPhrase ? 'phrase' : 'word',
+            definitions: [{ definition: item.meaning || 'Looking up the meaning…' }]
+          }
+        ],
+        // A millisecond apart, so the list keeps its order (first item on top)
+        dateAdded: new Date(now - i).toISOString(),
+        collectionId: collectionId || undefined,
+        userNote: item.meaning ? `My meaning: ${item.meaning}` : undefined,
+        tags: [isPhrase ? 'phrase' : 'word'],
+        isStarred: false,
+        pendingDetails: true,
+        reviewStatus: { dueForReview: true, intervalDays: 0, repetitions: 0 }
+      };
+    });
+    setWords((prev) => [...entries, ...prev.filter((w) => !entries.some((e) => e.word.toLowerCase() === w.word.toLowerCase()))]);
+    showToast(`Saved ${entries.length} ${entries.length === 1 ? 'word' : 'words'}. Adding meanings and pronunciation…`);
+    enrichWords(entries);
+  };
+
+  // Finish any imported words still waiting for details (e.g. the app was
+  // closed mid-way). Wait a moment so synced words from the account arrive first.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const pending = wordsRef.current.filter((w) => w.pendingDetails);
+      if (pending.length && navigator.onLine) enrichWords(pending);
+    }, 5000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handler: Toggle Star
   // Stars mark favourites: they get their own Review deck and Library filter.
@@ -603,6 +699,8 @@ export default function App() {
     if (!shared) return;
     if (shared.kind === 'lookup') {
       handleSearchLookup(shared.text);
+    } else if (shared.kind === 'list') {
+      setImportText(shared.text);
     } else {
       setScanPageTab('paste');
       setSharedPaste({
@@ -772,6 +870,7 @@ export default function App() {
                   onDeleteWord={handleDeleteWord}
                   onSaveFromHistory={handleSaveFromHistory}
                   onClearHistory={handleClearHistory}
+                  onOpenImportList={() => setImportText('')}
                 />
               </div>
             )}
@@ -884,6 +983,17 @@ export default function App() {
         </div>
       )}
 
+      {importText !== null && (
+        <ImportListModal
+          initialText={importText}
+          collections={collections}
+          savedWords={words}
+          onCreateCollection={(title) => handleCreateCollection(title)}
+          onImport={handleImportWords}
+          onClose={() => setImportText(null)}
+        />
+      )}
+
       {isAccountOpen && (
         <AccountModal
           user={user}
@@ -910,6 +1020,7 @@ export default function App() {
           onOpenScanPage={() => openScanPage('scan')}
           onOpenPasteText={() => openScanPage('paste')}
           onOpenAddQuote={() => setIsAddQuoteOpen(true)}
+          onOpenImportList={() => setImportText('')}
           onOpenExpressions={() => {
             setActiveWordDetail(null);
             setIsCommuteMode(false);

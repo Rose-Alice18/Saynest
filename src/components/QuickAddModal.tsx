@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Camera, FileText, Quote, Compass, X, Sparkles, ArrowRight } from 'lucide-react';
+import { Search, Camera, FileText, Quote, Compass, X, Sparkles, ArrowRight, ListChecks } from 'lucide-react';
 
 interface QuickAddModalProps {
   onClose: () => void;
@@ -7,6 +7,7 @@ interface QuickAddModalProps {
   onOpenScanPage: () => void;
   onOpenPasteText: () => void;
   onOpenAddQuote: () => void;
+  onOpenImportList: () => void;
   onOpenExpressions: () => void;
 }
 
@@ -16,6 +17,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   onOpenScanPage,
   onOpenPasteText,
   onOpenAddQuote,
+  onOpenImportList,
   onOpenExpressions
 }) => {
   const [wordInput, setWordInput] = useState('');
@@ -141,6 +143,23 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
             <div>
               <div className="text-xs font-bold text-stone-900">Add a quote</div>
               <div className="text-[11px] text-stone-500">Keep a line you loved from a book or talk</div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenImportList();
+            }}
+            className="w-full p-3 bg-white hover:bg-stone-50 rounded-2xl border border-stone-200/90 flex items-center gap-3 text-left transition-colors"
+          >
+            <div className="w-9 h-9 rounded-xl bg-violet-100/60 flex items-center justify-center shrink-0">
+              <ListChecks className="w-4 h-4 text-violet-800" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-stone-900">Import a word list</div>
+              <div className="text-[11px] text-stone-500">Paste a list from Notes and save every word at once</div>
             </div>
           </button>
 
