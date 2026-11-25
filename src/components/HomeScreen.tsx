@@ -243,22 +243,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     {...clickableProps(() => onSelectWord(word))}
                     className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2 p-4 bg-white hover:bg-stone-50 rounded-2xl border border-stone-200/80 shadow-2xs flex items-center justify-between cursor-pointer transition-all group"
                   >
-                    <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
                       <div className="w-9 h-9 rounded-full bg-[#FAF6EC] flex items-center justify-center shrink-0 text-stone-700 font-serif font-bold text-sm">
                         {word.word.slice(0, 1).toUpperCase()}
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="font-bold text-sm sm:text-base text-stone-900 font-serif-display truncate">
                           {word.word}
                         </div>
-                        <div className="text-xs text-stone-500 capitalize flex items-center gap-1.5 mt-0.5">
-                          <span>{word.meanings[0]?.partOfSpeech || word.type}</span>
-                          <span>·</span>
-                          <span>{word.meanings.length > 1 ? `${word.meanings.length} meanings` : '1 meaning'}</span>
+                        {/* One line on phones: the pronunciation is trimmed with … rather than wrapping.
+                            Only the part of speech is capitalised; IPA symbols must keep their case. */}
+                        <div className="text-xs text-stone-500 flex items-center gap-1.5 mt-0.5 whitespace-nowrap overflow-hidden">
+                          <span className="capitalize shrink-0">{word.meanings[0]?.partOfSpeech || word.type}</span>
+                          <span className="shrink-0">·</span>
+                          <span className="shrink-0">{word.meanings.length > 1 ? `${word.meanings.length} meanings` : '1 meaning'}</span>
                           {word.phonetic && (
                             <>
-                              <span>·</span>
-                              <span className="font-mono text-stone-400 text-[11px]">{word.phonetic}</span>
+                              <span className="shrink-0">·</span>
+                              <span className="font-mono text-stone-400 text-[11px] truncate min-w-0">{word.phonetic}</span>
                             </>
                           )}
                         </div>
