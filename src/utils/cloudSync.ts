@@ -187,6 +187,7 @@ export function useCloudSync(user: User | null, lists: SyncLists) {
     collections: new Map()
   });
   const ready = useRef(false);
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listsRef = useRef(lists);
   listsRef.current = lists;
 
@@ -201,6 +202,7 @@ export function useCloudSync(user: User | null, lists: SyncLists) {
   // 1. On sign-in: merge, then listen for changes from other devices
   useEffect(() => {
     ready.current = false;
+    if (pushTimer.current) clearTimeout(pushTimer.current);
     remote.current = { words: new Map(), history: new Map(), collections: new Map() };
     if (!uid || !db) {
       setStatus('off');
@@ -312,12 +314,14 @@ export function useCloudSync(user: User | null, lists: SyncLists) {
   }, [uid]);
 
   // 2. Push local changes up, a moment after they happen
-  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!uid || !db || !ready.current) return;
     const firestore = db;
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(async () => {
+      // Never write after signing out or switching account: by then the lists
+      // on screen are a fresh start, not this person's words
+      if (!ready.current || auth?.currentUser?.uid !== uid) return;
       const writes: { kind: Kind; id: string; json: string | null }[] = [];
       for (const kind of ['words', 'history', 'collections'] as Kind[]) {
         const now = serialize(kind, current(kind));
