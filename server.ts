@@ -73,7 +73,9 @@ app.all(['/__/auth/*', '/__/firebase/*'], express.raw({ type: '*/*', limit: '1mb
 // Everything else keeps Express's small default.
 const smallJson = express.json();
 const photoJson = express.json({ limit: '8mb' });
-app.use((req, res, next) => (req.path === '/api/scan-image' ? photoJson : smallJson)(req, res, next));
+app.use((req, res, next) =>
+  (req.path === '/api/scan-image' || req.path === '/api/transcribe' ? photoJson : smallJson)(req, res, next)
+);
 
 // ---------------------------------------------------------------------------
 // AI providers
@@ -587,88 +589,414 @@ Return ONLY valid JSON:
   });
 });
 
-// Book search & cover fetch endpoint
-app.get('/api/books/search', async (req, res) => {
-  const query = (req.query.q as string || '').trim();
-  if (!query) {
-    return res.status(400).json({ error: 'Search query is required' });
-  }
+// ---------------------------------------------------------------------------
+// Book search
+//
+// Open Library's title search finds the right book far more reliably than its
+// general search (which is slow and matches loosely, e.g. "Bible" for "From
+// Third World to First"). Both run together and results are ranked by how
+// closely their title matches what was typed. If nothing matches well (typos,
+// "3rd" for "third"...), the AI works out which book was meant and we search
+// again for that. Google Books is a last resort: its free quota is shared and
+// often used up.
 
-  try {
-    // 1. Try OpenLibrary Search
-    const olRes = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=8`, {
-      signal: AbortSignal.timeout(4000)
-    });
+interface FoundBook {
+  id: string;
+  title: string;
+  author: string;
+  coverUrl?: string;
+  year?: number | string;
+  pageCount: number;
+  editions?: number;
+}
 
-    if (olRes.ok) {
-      const olData = await olRes.json();
-      if (olData.docs && olData.docs.length > 0) {
-        const books = olData.docs
-          .map((doc: any) => {
-            const author = Array.isArray(doc.author_name) ? doc.author_name[0] : (doc.author_name || 'Unknown Author');
-            const coverUrl = doc.cover_i 
-              ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` 
-              : (doc.isbn && doc.isbn[0] ? `https://covers.openlibrary.org/b/isbn/${doc.isbn[0]}-L.jpg` : undefined);
-            
-            return {
-              id: doc.key ? doc.key.replace('/works/', '') : `book-${Date.now()}-${Math.random()}`,
-              title: doc.title,
-              author,
-              coverUrl,
-              year: doc.first_publish_year,
-              pageCount: doc.number_of_pages_median || 300
-            };
-          });
+const ORDINALS: Record<string, string> = {
+  '1st': 'first', '2nd': 'second', '3rd': 'third', '4th': 'fourth', '5th': 'fifth',
+  '6th': 'sixth', '7th': 'seventh', '8th': 'eighth', '9th': 'ninth', '10th': 'tenth'
+};
+const STOP = new Set(['the', 'a', 'an', 'of', 'and', 'to', 'in', 'on', 'by', 'for', 'book']);
+const bookTokens = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[’']/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((t) => ORDINALS[t] || t);
 
-        return res.json({ books });
-      }
-    }
-  } catch (olErr) {
-    console.warn('OpenLibrary search error, trying Google Books fallback:', olErr);
-  }
+/** 0..1: how much of the search the title covers, and how much of the title the search covers */
+function titleMatch(title: string, author: string, query: string): number {
+  const q = bookTokens(query).filter((t) => !STOP.has(t));
+  const t = new Set(bookTokens(title).filter((x) => !STOP.has(x)));
+  const a = new Set(bookTokens(author));
+  if (!q.length || !t.size) return 0;
+  const inTitle = q.filter((x) => t.has(x)).length;
+  const inAuthor = q.filter((x) => !t.has(x) && a.has(x)).length;
+  const coverage = (inTitle + inAuthor) / q.length; // search words found in title/author
+  const precision = inTitle / t.size; // title words the search asked for
+  // Both must be high: a 200-word 17th-century title that happens to contain
+  // every search word is not a match
+  return coverage * (0.4 + 0.6 * Math.min(1, precision * 1.5));
+}
 
-  // 2. Google Books fallback
-  try {
-    const gbRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=6`, {
-      signal: AbortSignal.timeout(4000)
-    });
-    if (gbRes.ok) {
-      const gbData = await gbRes.json();
-      if (gbData.items && gbData.items.length > 0) {
-        const books = gbData.items.map((item: any) => {
-          const info = item.volumeInfo || {};
-          let coverUrl = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail;
-          if (coverUrl && coverUrl.startsWith('http://')) {
-            coverUrl = coverUrl.replace('http://', 'https://');
-          }
-          return {
-            id: item.id || `book-${Date.now()}`,
-            title: info.title || query,
-            author: (info.authors && info.authors[0]) || 'Unknown Author',
-            coverUrl,
-            year: info.publishedDate ? info.publishedDate.slice(0, 4) : undefined,
-            pageCount: info.pageCount || 250
-          };
-        });
-        return res.json({ books });
-      }
-    }
-  } catch (gbErr) {
-    console.warn('Google Books fallback error:', gbErr);
-  }
-
-  // Fallback book entry
-  return res.json({
-    books: [
-      {
-        id: `book-${Date.now()}`,
-        title: query,
-        author: 'Unknown author',
-        coverUrl: undefined,
-        pageCount: 200
-      }
-    ]
+async function openLibrarySearch(params: Record<string, string>, limit = 10): Promise<FoundBook[]> {
+  const qs = new URLSearchParams({
+    ...params,
+    limit: String(limit),
+    fields: 'key,title,subtitle,author_name,first_publish_year,cover_i,edition_count,number_of_pages_median,isbn'
   });
+  try {
+    const r = await fetch(`https://openlibrary.org/search.json?${qs}`, {
+      signal: AbortSignal.timeout(8000),
+      headers: { 'User-Agent': 'SayNest/1.0 (vocabulary app)' }
+    });
+    if (!r.ok) return [];
+    const data = await r.json();
+    return (data.docs || []).map((doc: any) => ({
+      id: String(doc.key || '').replace('/works/', '') || `ol-${Math.random()}`,
+      title: doc.subtitle && !String(doc.title).includes(':') ? `${doc.title}: ${doc.subtitle}` : doc.title,
+      author: Array.isArray(doc.author_name) && doc.author_name[0] ? doc.author_name[0] : 'Unknown author',
+      coverUrl: doc.cover_i
+        ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`
+        : doc.isbn?.[0]
+          ? `https://covers.openlibrary.org/b/isbn/${doc.isbn[0]}-L.jpg?default=false`
+          : undefined,
+      year: doc.first_publish_year,
+      pageCount: doc.number_of_pages_median || 300,
+      editions: doc.edition_count || 1
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function googleBooksSearch(query: string): Promise<FoundBook[]> {
+  try {
+    const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=8&printType=books`, {
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!r.ok) return [];
+    const data = await r.json();
+    return (data.items || []).map((item: any) => {
+      const info = item.volumeInfo || {};
+      const cover = (info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || '').replace('http://', 'https://');
+      return {
+        id: item.id || `gb-${Math.random()}`,
+        title: info.subtitle ? `${info.title}: ${info.subtitle}` : info.title || query,
+        author: info.authors?.[0] || 'Unknown author',
+        coverUrl: cover || undefined,
+        year: info.publishedDate ? info.publishedDate.slice(0, 4) : undefined,
+        pageCount: info.pageCount || 300,
+        editions: 1
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** Rank by title match, then prefer books with covers and many editions (the well-known one) */
+function rankBooks(books: FoundBook[], query: string): (FoundBook & { score: number })[] {
+  const seen = new Set<string>();
+  return books
+    .map((b) => ({
+      ...b,
+      score:
+        titleMatch(b.title, b.author, query) +
+        (b.coverUrl ? 0.05 : 0) +
+        // The famous book has hundreds of editions; adaptations and study guides have few
+        Math.min(0.25, Math.log10((b.editions || 1) + 1) * 0.08)
+    }))
+    .sort((a, b) => b.score - a.score)
+    .filter((b) => {
+      const key = `${bookTokens(b.title).join(' ')}|${bookTokens(b.author).join(' ')}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+app.get('/api/books/search', async (req, res) => {
+  const query = ((req.query.q as string) || '').trim();
+  if (!query) return res.status(400).json({ error: 'Search query is required' });
+  const normalised = bookTokens(query).join(' ');
+
+  // "Title by Author" searches both fields
+  const byMatch = query.match(/^(.+?)\s+by\s+(.+)$/i);
+  const searches = [
+    openLibrarySearch(byMatch ? { title: byMatch[1], author: byMatch[2] } : { title: normalised }),
+    openLibrarySearch({ q: normalised }, 8)
+  ];
+  let ranked = rankBooks((await Promise.all(searches)).flat(), query);
+
+  // Nothing close: ask the AI which book was meant, then search for that
+  if ((!ranked.length || ranked[0].score < 0.6) && aiProviders.length > 0) {
+    try {
+      const guess = await generateJson(
+        `Someone is looking for a book and typed: "${query}". It may have typos, abbreviations or words out of order.
+Which published book do they most likely mean? Return ONLY JSON: {"title": "exact book title", "author": "author's full name"}.
+If you can't tell, return {"title": "", "author": ""}.`,
+        { timeoutMs: 8000 }
+      );
+      console.log(`Book search: "${query}" looks like`, JSON.stringify(guess));
+      if (guess?.title) {
+        const again = await openLibrarySearch(
+          guess.author ? { title: guess.title, author: guess.author } : { title: guess.title },
+          8
+        );
+        const reranked = rankBooks([...again, ...ranked], `${guess.title} ${guess.author || ''}`);
+        if (reranked.length) ranked = reranked;
+      }
+    } catch (err) {
+      console.warn('Book guess failed:', err);
+    }
+  }
+
+  if (!ranked.length) ranked = rankBooks(await googleBooksSearch(query), query);
+
+  const books = ranked
+    .filter((b, i) => i === 0 || b.score >= 0.35) // drop the clearly unrelated ones
+    .slice(0, 8)
+    .map(({ score, editions, ...b }) => b);
+
+  if (books.length) return res.json({ books });
+  // No match anywhere: offer to add it as typed
+  return res.json({
+    books: [{ id: `book-${Date.now()}`, title: query, author: 'Unknown author', coverUrl: undefined, pageCount: 200 }],
+    notFound: true
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Words from a link (TikTok, YouTube, Instagram, articles...)
+//
+// We can't watch the video, but the caption or page title usually names the
+// word being taught ("Word of the day: ubiquitous"). Read that, then let the
+// AI pick out the words or phrases the post is about.
+
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36';
+
+/** Only public web addresses: no localhost, raw IPs or internal names */
+function isPublicUrl(raw: string): URL | null {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    const host = u.hostname.toLowerCase();
+    if (!host.includes('.') || host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) return null;
+    if (/^[\d.]+$/.test(host) || host.includes(':')) return null; // IPv4 / IPv6 literals
+    return u;
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch a page as text, following redirects, and stop reading after ~1.5 MB */
+async function fetchPageText(url: string): Promise<{ finalUrl: string; html: string }> {
+  const r = await fetch(url, {
+    redirect: 'follow',
+    signal: AbortSignal.timeout(10000),
+    headers: { 'User-Agent': BROWSER_UA, 'Accept-Language': 'en-US,en;q=0.9', Accept: 'text/html,*/*' }
+  });
+  const finalUrl = r.url || url;
+  if (!isPublicUrl(finalUrl)) throw new Error('Redirected somewhere private');
+  const reader = r.body?.getReader();
+  if (!reader) return { finalUrl, html: '' };
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (size < 1_500_000) {
+    const { done, value } = await reader.read();
+    if (done || !value) break;
+    chunks.push(value);
+    size += value.length;
+  }
+  reader.cancel().catch(() => {});
+  return { finalUrl, html: Buffer.concat(chunks).toString('utf8') };
+}
+
+const decodeEntities = (s: string) =>
+  s
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&#x27;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\\u([\dA-Fa-f]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\n/g, '\n')
+    .replace(/\\"/g, '"');
+
+const metaContent = (html: string, prop: string) =>
+  html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]*content=["']([^"']*)`, 'i'))?.[1] ||
+  html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${prop}["']`, 'i'))?.[1];
+
+/** The words describing a post or page: its caption, title and description */
+async function readLinkText(url: URL): Promise<{ site: string; text: string; finalUrl: string }> {
+  const host = url.hostname.replace(/^www\./, '');
+  const parts: string[] = [];
+  let site = host;
+  let finalUrl = url.toString();
+
+  if (/(^|\.)tiktok\.com$/.test(host)) {
+    site = 'TikTok';
+    const page = await fetchPageText(url.toString()).catch(() => null);
+    if (page) {
+      finalUrl = page.finalUrl;
+      // The caption sits in the page's data as "desc":"..."
+      const desc = page.html.match(/"desc":"((?:[^"\\]|\\.){1,2200})"/)?.[1];
+      if (desc) parts.push(decodeEntities(desc));
+    }
+    try {
+      const o = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(finalUrl)}`, {
+        signal: AbortSignal.timeout(6000),
+        headers: { 'User-Agent': BROWSER_UA }
+      });
+      if (o.ok) {
+        const j: any = await o.json();
+        if (j.title) parts.push(j.title);
+      }
+    } catch {}
+  } else if (/(^|\.)(youtube\.com|youtu\.be)$/.test(host)) {
+    site = 'YouTube';
+    try {
+      const o = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url.toString())}`, {
+        signal: AbortSignal.timeout(6000)
+      });
+      if (o.ok) {
+        const j: any = await o.json();
+        if (j.title) parts.push(j.title);
+      }
+    } catch {}
+    const page = await fetchPageText(url.toString()).catch(() => null);
+    const desc = page && metaContent(page.html, 'og:description');
+    if (desc) parts.push(decodeEntities(desc));
+  } else {
+    if (/instagram\.com$/.test(host)) site = 'Instagram';
+    else if (/(^|\.)(x|twitter)\.com$/.test(host)) site = 'X';
+    const page = await fetchPageText(url.toString()).catch(() => null);
+    if (page) {
+      finalUrl = page.finalUrl;
+      const title = metaContent(page.html, 'og:title') || page.html.match(/<title[^>]*>([^<]*)/i)?.[1];
+      const desc = metaContent(page.html, 'og:description') || metaContent(page.html, 'description');
+      if (title) parts.push(decodeEntities(title));
+      if (desc) parts.push(decodeEntities(desc));
+    }
+  }
+  let text = [...new Set(parts.map((p) => p.trim()).filter(Boolean))].join('\n').slice(0, 3000);
+  // Bot-check pages (Cloudflare etc.) aren't the post: treat the link as unreadable
+  if (/^(just a moment|attention required|access denied|please enable (javascript|cookies)|verify you are human)/i.test(text)) text = '';
+  return { site, text, finalUrl };
+}
+
+app.get('/api/link-words', async (req, res) => {
+  const url = isPublicUrl(String(req.query.url || ''));
+  if (!url) return res.status(400).json({ error: 'That doesn’t look like a web link.' });
+  // Some apps share the caption along with the link; use it too
+  const sharedText = String(req.query.text || '').slice(0, 1000);
+
+  const { site, text, finalUrl } = await readLinkText(url);
+  const context = [sharedText, text].filter(Boolean).join('\n');
+  if (!context.trim()) {
+    return res.json({ site, url: finalUrl, caption: '', words: [], reason: 'unreadable' });
+  }
+
+  let words: { word: string; meaning?: string }[] = [];
+  if (aiProviders.length > 0) {
+    try {
+      const result = await generateJson(
+        `A language learner shared a ${site} post to their vocabulary app. Here is its caption / title / description:
+"""
+${context}
+"""
+Which English words, phrases or expressions is this post teaching or about? Ignore hashtags like #fyp, usernames, emojis and filler.
+Return ONLY JSON: {"words": [{"word": "the word or phrase in lower case unless it's a name", "meaning": "a short meaning if the post gives one, else empty"}]}
+List at most 6, most important first. If the post isn't about any particular word or phrase, return {"words": []}.`,
+        { timeoutMs: 12000 }
+      );
+      if (Array.isArray(result?.words)) {
+        words = result.words
+          .filter((w: any) => typeof w?.word === 'string' && w.word.trim() && w.word.trim().split(/\s+/).length <= 6)
+          .slice(0, 6)
+          .map((w: any) => ({ word: w.word.trim(), meaning: typeof w.meaning === 'string' && w.meaning.trim() ? w.meaning.trim() : undefined }));
+      }
+    } catch (err) {
+      console.warn('Link word extraction failed:', err);
+    }
+  }
+  if (!words.length) {
+    // No AI answer: words in quotes, or after "word of the day:"
+    const quoted = [...context.matchAll(/[“"']([A-Za-z][A-Za-z' -]{2,40})[”"']/g)].map((m) => m[1]);
+    const wotd = context.match(/word of the day[:\s-]+([A-Za-z][A-Za-z'-]{2,30})/i)?.[1];
+    words = [...new Set([wotd, ...quoted].filter(Boolean) as string[])].slice(0, 6).map((word) => ({ word }));
+  }
+  res.json({ site, url: finalUrl, caption: text.slice(0, 500), words });
+});
+
+// ---------------------------------------------------------------------------
+// Accurate voice search
+//
+// Phones' built-in speech recognition often mishears phrases ("drill stars
+// around my car" for "you drew stars around my scars"). When an OpenAI key is
+// set, the app records a few seconds of audio and we send it to OpenAI's
+// transcription models instead. A few seconds cost a fraction of a cent.
+const TRANSCRIBE_MODELS = [process.env.OPENAI_TRANSCRIBE_MODEL, 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'].filter(
+  Boolean
+) as string[];
+let workingTranscribeModel: string | null = null;
+
+app.get('/api/transcribe/status', (_req, res) => {
+  res.json({ available: !!process.env.OPENAI_API_KEY });
+});
+
+app.post('/api/transcribe', async (req, res) => {
+  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'Accurate voice search is not set up.' });
+  const { audio, mimeType } = req.body || {};
+  if (typeof audio !== 'string' || !audio) return res.status(400).json({ error: 'No recording was sent.' });
+  const type = typeof mimeType === 'string' && /^audio\/[\w.+-]+/.test(mimeType) ? mimeType.split(';')[0] : 'audio/webm';
+  const bytes = Buffer.from(audio, 'base64');
+  if (bytes.length < 1000) return res.status(400).json({ error: "That recording was too short. Hold the mic and speak a little longer." });
+  if (bytes.length > 6_000_000) return res.status(413).json({ error: 'That recording was too long. Keep it under a minute.' });
+  const ext = type.includes('mp4') || type.includes('m4a') || type.includes('aac') ? 'm4a' : type.includes('ogg') ? 'ogg' : type.includes('wav') ? 'wav' : type.includes('mpeg') ? 'mp3' : 'webm';
+
+  const models = workingTranscribeModel ? [workingTranscribeModel] : TRANSCRIBE_MODELS;
+  for (const model of models) {
+    try {
+      const form = new FormData();
+      form.append('file', new Blob([bytes], { type }), `speech.${ext}`);
+      form.append('model', model);
+      form.append('language', 'en');
+      // Tells the model what kind of thing is being said, which helps with rare words
+      form.append(
+        'prompt',
+        'Someone is saying an English word, phrase, idiom, quote or line of a song or poem to look it up in a dictionary.'
+      );
+      const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+        body: form,
+        signal: AbortSignal.timeout(20000)
+      });
+      if (r.status === 404 || r.status === 400) {
+        // Model not available on this account (or unsupported audio): try the next one
+        const detail = await r.text();
+        console.warn(`Transcription with ${model} failed (${r.status}): ${detail.slice(0, 200)}`);
+        if (r.status === 400 && !/model/i.test(detail)) {
+          return res.status(400).json({ error: "We couldn't read that recording. Try again, or type the word." });
+        }
+        continue;
+      }
+      if (!r.ok) {
+        console.warn(`Transcription with ${model} failed (${r.status})`);
+        return res.status(502).json({ error: 'Voice search is busy right now. Try again, or type the word.' });
+      }
+      const data: any = await r.json();
+      workingTranscribeModel = model;
+      const text = String(data.text || '').trim().replace(/[.!?]+$/, '');
+      return res.json({ text, model });
+    } catch (err) {
+      console.warn(`Transcription with ${model} errored:`, err);
+    }
+  }
+  res.status(502).json({ error: 'Voice search is unavailable right now. Try again, or type the word.' });
 });
 
 async function startServer() {

@@ -22,6 +22,7 @@ interface LibraryScreenProps {
   onSaveFromHistory?: (word: WordEntry) => void;
   onClearHistory?: () => void;
   onOpenImportList?: () => void;
+  onRemoveFromHistory?: (id: string) => void;
 }
 
 export const LibraryScreen: React.FC<LibraryScreenProps> = ({
@@ -34,7 +35,8 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
   onDeleteWord,
   onSaveFromHistory,
   onClearHistory,
-  onOpenImportList
+  onOpenImportList,
+  onRemoveFromHistory
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'All' | 'Starred' | 'Words' | 'Phrases' | 'Transitions' | 'Quotes'>('All');
@@ -426,16 +428,17 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-1.5 text-xs text-stone-500 mt-0.5">
-                            <span className="capitalize">{partOfSpeech}</span>
+                          {/* One line: long phrase pronunciations are trimmed with … instead of stacking */}
+                          <div className="flex items-center gap-1.5 text-xs text-stone-500 mt-0.5 whitespace-nowrap overflow-hidden">
+                            <span className="capitalize shrink-0">{partOfSpeech}</span>
                             {item.phonetic && (
                               <>
-                                <span>·</span>
-                                <span className="font-mono text-stone-600">{item.phonetic}</span>
+                                <span className="shrink-0">·</span>
+                                <span className="font-mono text-stone-600 truncate min-w-0">{item.phonetic}</span>
                               </>
                             )}
-                            <span>·</span>
-                            <span className="text-[11px] text-stone-400 flex items-center gap-1">
+                            <span className="shrink-0 hidden sm:inline">·</span>
+                            <span className="text-[11px] text-stone-400 items-center gap-1 shrink-0 hidden sm:flex">
                               <Clock className="w-3 h-3" />
                               {formatSearchTime(item.searchedAt || item.dateAdded)}
                             </span>
@@ -448,7 +451,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                       </div>
 
                       {/* Right Action: Saved Badge or Add to Library */}
-                      <div className="flex items-center gap-2 shrink-0 self-center" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5 sm:gap-2 shrink-0 self-center" onClick={(e) => e.stopPropagation()}>
                         {savedEntry ? (
                           // Tap again to unsave; the word stays in Search History
                           <button
@@ -469,6 +472,16 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({
                           >
                             <Plus className="w-3.5 h-3.5" />
                             <span>Save</span>
+                          </button>
+                        )}
+                        {onRemoveFromHistory && (
+                          <button
+                            onClick={() => onRemoveFromHistory(item.id)}
+                            aria-label={`Remove ${item.word} from search history`}
+                            title="Remove from search history"
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-stone-400 hover:text-rose-700 hover:bg-rose-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>

@@ -133,14 +133,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           {/* Big Search Input with Mic Trigger */}
           <form onSubmit={handleSearchSubmit} className="max-w-3xl">
             <div className="relative flex items-center">
-              <Search className="w-5 h-5 absolute left-4 text-stone-500" />
+              {/* The icon doesn't catch taps, so tapping it puts the cursor in the box */}
+              <Search className="w-5 h-5 absolute left-4 text-stone-500 pointer-events-none" />
               <input
-                type="text"
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoCapitalize="none"
+                autoComplete="off"
+                spellCheck={false}
+                aria-label="Look up a word, phrase or expression"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Type or say a word, phrase, or expression..."
-                className="w-full pl-12 pr-12 py-3.5 sm:py-4 bg-white rounded-2xl text-sm sm:text-base font-semibold text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-900 shadow-sm"
+                className={`w-full pl-12 ${searchInput.trim() ? 'pr-32' : 'pr-12'} py-3.5 sm:py-4 bg-white rounded-2xl text-base font-semibold text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-900 shadow-sm [&::-webkit-search-cancel-button]:hidden`}
               />
+              {searchInput.trim() && (
+                <button
+                  type="submit"
+                  className="absolute right-14 py-2 px-3 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold"
+                >
+                  Search
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleQuickVoice}

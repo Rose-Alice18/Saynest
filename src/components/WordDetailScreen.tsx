@@ -7,6 +7,7 @@ import {
 import { speakWord } from '../utils/speech';
 import { clickableProps } from '../utils/a11y';
 import { SayNestBird } from './SayNestBird';
+import { VoiceGenderToggle } from './VoiceGenderToggle';
 
 interface WordDetailScreenProps {
   word: WordEntry;
@@ -259,6 +260,9 @@ export const WordDetailScreen: React.FC<WordDetailScreenProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Male or female voice, replayed straight away so you can compare */}
+              <VoiceGenderToggle accent={selectedAccent} onChange={() => handlePlayAudio(selectedAccent)} />
             </div>
 
             {/* Syllable Breakdown */}

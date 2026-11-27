@@ -10,9 +10,11 @@ interface BookCoverProps {
 }
 
 export const BookCover: React.FC<BookCoverProps> = ({
-  collectionId = 'pride-and-prejudice',
-  title = 'Pride and Prejudice',
-  author = 'Jane Austen',
+  // No defaults: a book without a cover gets a plain jacket with its own title,
+  // not Pride and Prejudice's illustrated cover
+  collectionId,
+  title = 'Untitled',
+  author,
   coverImage,
   size = 'md',
   className = ''
@@ -50,7 +52,7 @@ export const BookCover: React.FC<BookCoverProps> = ({
   // 2. Pride and Prejudice: uses the exact illustrated cover from reference mockup
   if (
     collectionId === 'pride-and-prejudice' ||
-    (title && title.toLowerCase().includes('pride'))
+    (title && /pride and prejudice/i.test(title))
   ) {
     return (
       <div

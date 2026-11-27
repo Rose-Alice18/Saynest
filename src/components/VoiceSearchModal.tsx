@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, X, Volume2, Sparkles, Loader2, ArrowRight, RotateCcw, Search } from 'lucide-react';
 import { speakWord } from '../utils/speech';
+import { isAccurateVoiceAvailable, startRecording, Recording, VoiceError } from '../utils/accurateVoice';
 
 interface VoiceSearchModalProps {
   onClose: () => void;
@@ -18,6 +19,10 @@ export const VoiceSearchModal: React.FC<VoiceSearchModalProps> = ({
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
   const [manualInput, setManualInput] = useState('');
   const recognitionRef = useRef<any>(null);
+  // Accurate mode: record, then the server transcribes with OpenAI
+  const recordingRef = useRef<Recording | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Some browsers keep "listening" forever without reporting anything. Stop
@@ -33,7 +38,47 @@ export const VoiceSearchModal: React.FC<VoiceSearchModalProps> = ({
 
   const sampleWords = ['mimic', 'acquiesce', 'notwithstanding', 'by the same token', 'ostensibly', 'ephemeral'];
 
-  const startListening = () => {
+  const startListening = async () => {
+    if (typeof window === 'undefined') return;
+    recordingRef.current?.cancel();
+    if (await isAccurateVoiceAvailable()) {
+      setErrorStatus(null);
+      setTranscript('');
+      setAlternatives([]);
+      try {
+        const rec = await startRecording({ onTranscribing: () => setIsTranscribing(true) });
+        recordingRef.current = rec;
+        setIsRecording(true);
+        setIsListening(true);
+        const text = await rec.result.finally(() => {
+          setIsRecording(false);
+          setIsListening(false);
+          setIsTranscribing(false);
+        });
+        if (recordingRef.current !== rec) return; // a newer recording took over
+        const heard = cleanHeard(text);
+        if (heard) {
+          setTranscript(heard);
+          setManualInput(heard);
+        } else {
+          setErrorStatus("We couldn't make out any words. Tap Listen Again, or type below.");
+        }
+        return;
+      } catch (err) {
+        setIsRecording(false);
+        setIsListening(false);
+        setIsTranscribing(false);
+        if (err instanceof VoiceError && err.kind !== 'server') {
+          setErrorStatus(err.message);
+          return;
+        }
+        // The transcription service failed: use the phone's own recognition instead
+      }
+    }
+    startBrowserRecognition();
+  };
+
+  const startBrowserRecognition = () => {
     if (typeof window === 'undefined') return;
 
     if (!('SpeechRecognition' in window) && !('webkitSpeechRecognition' in window)) {
@@ -145,6 +190,7 @@ export const VoiceSearchModal: React.FC<VoiceSearchModalProps> = ({
     startListening();
 
     return () => {
+      recordingRef.current?.cancel();
       clearWatchdog();
       if (recognitionRef.current) {
         try {
@@ -207,20 +253,36 @@ export const VoiceSearchModal: React.FC<VoiceSearchModalProps> = ({
           </div>
 
           <h3 className="text-lg font-bold font-serif-display text-stone-950 mt-4">
-            {isListening
-              ? transcript ? `"${transcript}"` : 'Listening now...'
-              : transcript ? 'Is this right?' : 'Say a word or phrase'}
+            {isTranscribing
+              ? 'Working out what you said…'
+              : isListening
+                ? transcript ? `"${transcript}"` : 'Listening now...'
+                : transcript ? 'Is this right?' : 'Say a word or phrase'}
           </h3>
 
           <p className="text-xs text-stone-600 mt-1 max-w-xs">
-            {isListening
-              ? 'Speak clearly, then pause'
+            {isTranscribing
+              ? 'One moment'
+              : isRecording
+                ? 'Say it, then pause, or tap Done'
+                : isListening
+                  ? 'Speak clearly, then pause'
               : transcript
                 ? 'Tap what you said, fix it in the box below, or try again'
                 : 'Tap the microphone to speak, or type below'}
           </p>
 
-          {!isListening && (
+          {isRecording && !isTranscribing && (
+            <button
+              type="button"
+              onClick={() => recordingRef.current?.stop()}
+              className="mt-3 py-2 px-5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold"
+            >
+              Done
+            </button>
+          )}
+          {isTranscribing && <Loader2 className="mt-3 w-5 h-5 animate-spin text-stone-700" />}
+          {!isListening && !isTranscribing && (
             <button
               type="button"
               onClick={startListening}

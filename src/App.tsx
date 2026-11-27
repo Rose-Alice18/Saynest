@@ -270,7 +270,37 @@ export default function App() {
     relatedExpressions: ai.relatedExpressions,
   });
 
+  // A link (TikTok, YouTube, an article): read its caption and find the word(s) it's about
+  const handleLink = async (url: string, extraText = '') => {
+    showToast('Reading the link…');
+    try {
+      const res = await fetch(`/api/link-words?url=${encodeURIComponent(url)}&text=${encodeURIComponent(extraText)}`);
+      const data = await res.json();
+      const found: { word: string; meaning?: string }[] = Array.isArray(data.words) ? data.words : [];
+      const where = data.site || 'link';
+      if (found.length === 1) {
+        handleSearchLookup(found[0].word);
+      } else if (found.length > 1) {
+        setImportText(found.map((w) => (w.meaning ? `${w.word} : ${w.meaning}` : w.word)).join('\n'));
+        showToast(`Found ${found.length} words in that ${where} post`);
+      } else if (data.reason === 'unreadable') {
+        showToast(`Couldn't read that ${where} link. Type the word from it in the search box instead.`);
+      } else {
+        const caption = data.caption ? ` ("${String(data.caption).slice(0, 60)}…")` : '';
+        showToast(`No word found in that ${where} post${caption}. Type it in the search box instead.`);
+      }
+    } catch {
+      showToast(navigator.onLine ? "Couldn't read that link. Try again." : "You're offline. Reading links needs internet.");
+    }
+  };
+
   const handleSearchLookup = async (query: string, options: { exact?: boolean } = {}) => {
+    // A pasted link: read the post instead of looking up the address as a word
+    const pastedLink = query.match(/https?:\/\/[^\s"'<>]+/i)?.[0];
+    if (pastedLink) {
+      handleLink(pastedLink, query.replace(pastedLink, ' ').trim());
+      return;
+    }
     const seq = ++lookupSeq.current; // ignore results from an older search
     setIsLoadingLookup(true);
     setIsEnhancingLookup(false);
@@ -490,6 +520,17 @@ export default function App() {
     handleSaveWord(entry);
   };
 
+  // Handler: Remove one search from history (e.g. a mis-heard voice search)
+  const handleRemoveFromHistory = (id: string) => {
+    const target = searchHistory.find((w) => w.id === id);
+    if (!target) return;
+    setSearchHistory((prev) => prev.filter((w) => w.id !== id));
+    showToast(`Removed "${target.word}" from history`, {
+      label: 'Undo',
+      run: () => setSearchHistory((prev) => (prev.some((w) => w.id === id) ? prev : [target, ...prev]))
+    });
+  };
+
   // Handler: Clear Search History Archive
   const handleClearHistory = () => {
     setSearchHistory([]);
@@ -701,6 +742,8 @@ export default function App() {
       handleSearchLookup(shared.text);
     } else if (shared.kind === 'list') {
       setImportText(shared.text);
+    } else if (shared.kind === 'link' && shared.url) {
+      handleLink(shared.url, shared.text);
     } else {
       setScanPageTab('paste');
       setSharedPaste({
@@ -871,6 +914,7 @@ export default function App() {
                   onSaveFromHistory={handleSaveFromHistory}
                   onClearHistory={handleClearHistory}
                   onOpenImportList={() => setImportText('')}
+                  onRemoveFromHistory={handleRemoveFromHistory}
                 />
               </div>
             )}

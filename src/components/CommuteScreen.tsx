@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { playCommuteSequence, stopAllAudio } from '../utils/speech';
 import { SayNestBird } from './SayNestBird';
+import { VoiceGenderToggle } from './VoiceGenderToggle';
 
 interface CommuteScreenProps {
   words: WordEntry[];
@@ -338,6 +339,17 @@ export const CommuteScreen: React.FC<CommuteScreenProps> = ({ words, onBack }) =
               ))}
             </div>
           </div>
+
+          {/* Male or female voice: the next line read out uses it */}
+          <VoiceGenderToggle
+            accent="British"
+            onChange={() => {
+              if (isPlayingRef.current) {
+                stopAllAudio();
+                runSequence(currentIndex, speechSpeed);
+              }
+            }}
+          />
 
           {/* Toggles Strip matching mockup */}
           <div className="w-full pt-4 border-t border-stone-200/80 flex items-center justify-around text-xs">

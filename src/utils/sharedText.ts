@@ -18,7 +18,9 @@ export interface SharedText {
   book?: string;
   author?: string;
   /** A word or short phrase is looked up; anything longer is scanned for words */
-  kind: 'lookup' | 'passage' | 'list';
+  kind: 'lookup' | 'passage' | 'list' | 'link';
+  /** For links: the address (TikTok, YouTube, an article...) */
+  url?: string;
 }
 
 const QUOTES = /^[\s"'“”‘’«»]+|[\s"'“”‘’«»]+$/g;
@@ -41,8 +43,15 @@ export function parseSharedText(raw: string): SharedText | null {
     author = lines[1];
   }
 
-  // A link on its own line (some apps add one) isn't part of the text
-  text = text.replace(/\n\s*https?:\/\/\S+\s*$/i, '').trim();
+  // A link (e.g. shared from TikTok): read the post's caption for the word.
+  // A word shared together with its page's link is still just that word.
+  const link = text.match(/https?:\/\/[^\s"'<>]+/i)?.[0];
+  if (link) {
+    const rest = text.replace(link, ' ').replace(QUOTES, '').replace(/\s+/g, ' ').trim();
+    const restWords = rest ? rest.split(' ').length : 0;
+    if (restWords === 0 || (restWords > 4 && restWords <= 40)) return { text: rest, url: link, kind: 'link' };
+    text = text.replace(link, ' ').trim();
+  }
   // A list of words (one per line), e.g. a note of vocabulary: keep its lines
   if (looksLikeWordList(text)) return { text, book, author, kind: 'list' };
   text = text.replace(QUOTES, '').replace(/\s+/g, ' ').trim();
