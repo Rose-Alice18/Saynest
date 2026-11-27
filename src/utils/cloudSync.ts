@@ -13,52 +13,24 @@
 // Each item is stored as a JSON string, which sidesteps Firestore's rules about
 // undefined values and nested arrays.
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { initializeApp, type FirebaseApp } from 'firebase/app';
-import {
-  getAuth,
-  onAuthStateChanged,
-  GoogleAuthProvider,
-  signInWithPopup,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  sendPasswordResetEmail,
-  updateProfile,
-  signOut as firebaseSignOut,
-  type Auth,
-  type User
-} from 'firebase/auth';
-import {
-  getFirestore,
-  collection,
-  doc,
-  getDocs,
-  onSnapshot,
-  writeBatch,
-  type Firestore
-} from 'firebase/firestore';
+import type { User } from 'firebase/auth';
 import { firebaseConfig } from '../firebaseConfig';
 import { WordEntry, Collection } from '../types';
 import { INITIAL_WORDS, INITIAL_COLLECTIONS } from '../data/initialData';
 
-let app: FirebaseApp | null = null;
-let auth: Auth | null = null;
-let db: Firestore | null = null;
-
-// On the live site, run Google sign-in on our own address (the server passes
-// /__/auth/* through to Firebase). Safari on iPhone blocks the sign-in if it
-// happens on a different site (firebaseapp.com) from the app.
-const LIVE_HOSTS = ['saynest.me', 'saynest-43dd8710a441.herokuapp.com'];
-const sameSiteAuthDomain =
-  typeof window !== 'undefined' && LIVE_HOSTS.includes(window.location.hostname) ? window.location.host : null;
-
-if (firebaseConfig) {
-  app = initializeApp({ ...firebaseConfig, authDomain: sameSiteAuthDomain || firebaseConfig.authDomain });
-  auth = getAuth(app);
-  db = getFirestore(app);
-}
-
 /** False until the Firebase project details are filled in */
-export const isCloudEnabled = !!app;
+export const isCloudEnabled = !!firebaseConfig;
+
+// Firebase loads separately (see firebaseClient.ts) so the first screen
+// isn't held up by it. Everything here waits for it when it needs it.
+type FirebaseClient = typeof import('./firebaseClient');
+let fb: FirebaseClient | null = null;
+let fbLoading: Promise<FirebaseClient> | null = null;
+function loadFirebase(): Promise<FirebaseClient> {
+  if (!isCloudEnabled) return Promise.reject(new Error('not-configured'));
+  fbLoading ??= import('./firebaseClient').then((m) => (fb = m));
+  return fbLoading;
+}
 
 export type SyncStatus = 'off' | 'syncing' | 'synced' | 'offline' | 'error';
 
@@ -67,40 +39,53 @@ export type SyncStatus = 'off' | 'syncing' | 'synced' | 'offline' | 'error';
 
 export function useAuthUser() {
   const [user, setUser] = useState<User | null>(null);
-  const [ready, setReady] = useState(!auth);
+  const [ready, setReady] = useState(!isCloudEnabled);
   useEffect(() => {
-    if (!auth) return;
-    return onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setReady(true);
-    });
+    if (!isCloudEnabled) return;
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+    loadFirebase()
+      .then((m) => {
+        if (cancelled) return;
+        unsubscribe = m.onAuthStateChanged(m.auth, (u) => {
+          setUser(u);
+          setReady(true);
+        });
+      })
+      .catch(() => setReady(true));
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   }, []);
   return { user, ready };
 }
 
 export async function signInWithGoogle() {
-  if (!auth) throw new Error('not-configured');
-  await signInWithPopup(auth, new GoogleAuthProvider());
+  const m = await loadFirebase();
+  await m.signInWithPopup(m.auth, new m.GoogleAuthProvider());
 }
 
 export async function signInWithEmail(email: string, password: string) {
-  if (!auth) throw new Error('not-configured');
-  await signInWithEmailAndPassword(auth, email.trim(), password);
+  const m = await loadFirebase();
+  await m.signInWithEmailAndPassword(m.auth, email.trim(), password);
 }
 
 export async function createAccount(name: string, email: string, password: string) {
-  if (!auth) throw new Error('not-configured');
-  const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-  if (name.trim()) await updateProfile(cred.user, { displayName: name.trim() });
+  const m = await loadFirebase();
+  const cred = await m.createUserWithEmailAndPassword(m.auth, email.trim(), password);
+  if (name.trim()) await m.updateProfile(cred.user, { displayName: name.trim() });
 }
 
 export async function resetPassword(email: string) {
-  if (!auth) throw new Error('not-configured');
-  await sendPasswordResetEmail(auth, email.trim());
+  const m = await loadFirebase();
+  await m.sendPasswordResetEmail(m.auth, email.trim());
 }
 
 export async function signOut() {
-  if (auth) await firebaseSignOut(auth);
+  if (!isCloudEnabled) return;
+  const m = await loadFirebase();
+  await m.signOut(m.auth);
 }
 
 /** Turn a Firebase error into something a person can act on */
@@ -211,17 +196,19 @@ export function useCloudSync(user: User | null, lists: SyncLists) {
     ready.current = false;
     if (pushTimer.current) clearTimeout(pushTimer.current);
     remote.current = { words: new Map(), history: new Map(), collections: new Map() };
-    if (!uid || !db) {
+    if (!uid || !isCloudEnabled) {
       setStatus('off');
       return;
     }
-    const firestore = db;
     let cancelled = false;
     const unsubscribers: (() => void)[] = [];
     setStatus('syncing');
 
     (async () => {
       try {
+        const m = await loadFirebase();
+        const firestore = m.db;
+        const { collection, getDocs, onSnapshot } = m;
         const kinds: Kind[] = ['words', 'history', 'collections'];
         const fetched = await Promise.all(
           kinds.map((kind) => getDocs(collection(firestore, 'users', uid, kind)))
@@ -322,13 +309,15 @@ export function useCloudSync(user: User | null, lists: SyncLists) {
 
   // 2. Push local changes up, a moment after they happen
   useEffect(() => {
-    if (!uid || !db || !ready.current) return;
-    const firestore = db;
+    if (!uid || !fb || !ready.current) return;
+    const client = fb;
+    const firestore = client.db;
+    const { doc, writeBatch } = client;
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(async () => {
       // Never write after signing out or switching account: by then the lists
       // on screen are a fresh start, not this person's words
-      if (!ready.current || auth?.currentUser?.uid !== uid) return;
+      if (!ready.current || client.auth.currentUser?.uid !== uid) return;
       const writes: { kind: Kind; id: string; json: string | null }[] = [];
       for (const kind of ['words', 'history', 'collections'] as Kind[]) {
         const now = serialize(kind, current(kind));
